@@ -1,9 +1,9 @@
 const express = require('express');
-const request = require('request');
+const fetch = require('node-fetch');
 const dotenv = require('dotenv');
 const path = require('path');
 
-const port = 8888;
+const port = process.env.PORT || 8888;
 const app = express();
 
 dotenv.config();
@@ -26,99 +26,150 @@ app.get('/login', function(req, res) {
     '&redirect_uri=' + encodeURIComponent(redirect_uri));
 });
 
-app.get('/callback', function(req, res) {
+app.get('/callback', async function(req, res) {
   const code = req.query.code || null;
 
-  const authOptions = {
-    url: 'https://accounts.spotify.com/api/token',
-    form: {
-      code: code,
-      redirect_uri: redirect_uri,
-      grant_type: 'authorization_code'
-    },
-    headers: {
-      'Authorization': 'Basic ' + (Buffer.from(client_id + ':' + client_secret).toString('base64'))
-    },
-    json: true
-  };
+  try {
+    const response = await fetch('https://accounts.spotify.com/api/token', {
+      method: 'POST',
+      headers: {
+        'Authorization': 'Basic ' + (Buffer.from(client_id + ':' + client_secret).toString('base64')),
+        'Content-Type': 'application/x-www-form-urlencoded'
+      },
+      body: new URLSearchParams({
+        code: code,
+        redirect_uri: redirect_uri,
+        grant_type: 'authorization_code'
+      })
+    });
 
-  request.post(authOptions, function(error, response, body) {
-    if (!error && response.statusCode === 200) {
-      access_token = body.access_token;
-      refresh_token = body.refresh_token;
-      res.redirect('/#access_token=' + access_token);
+    if (!response.ok) {
+      throw new Error('Token request failed');
     }
-  });
+
+    const data = await response.json();
+    access_token = data.access_token;
+    refresh_token = data.refresh_token;
+    res.redirect('/#access_token=' + access_token);
+  } catch (error) {
+    console.error('Error in callback:', error);
+    res.status(500).json({ error: 'Authentication failed' });
+  }
 });
 
 app.get('/token', function(req, res) {
+  if (!access_token) {
+    res.status(401).json({ error: 'No access token available' });
+    return;
+  }
   res.json({ access_token: access_token });
 });
 
-app.get('/seek', function(req, res) {
+app.get('/seek', async function(req, res) {
+  if (!access_token) {
+    res.status(401).json({ error: 'No access token available' });
+    return;
+  }
+
   const position = req.query.position;
-  const options = {
-    url: 'https://api.spotify.com/v1/me/player/seek?position_ms=' + position,
-    headers: { 'Authorization': 'Bearer ' + access_token },
-    json: true
-  };
+  try {
+    const response = await fetch(`https://api.spotify.com/v1/me/player/seek?position_ms=${position}`, {
+      method: 'PUT',
+      headers: {
+        'Authorization': `Bearer ${access_token}`
+      }
+    });
 
-  request.put(options, function(error, response, body) {
-    if (!error && response.statusCode === 204) {
+    if (response.status === 204) {
       res.json({ success: true });
     } else {
       res.json({ success: false });
     }
-  });
+  } catch (error) {
+    console.error('Error in seek:', error);
+    res.status(500).json({ error: 'Failed to seek' });
+  }
 });
 
-app.get('/pause', function(req, res) {
-  const options = {
-    url: 'https://api.spotify.com/v1/me/player/pause',
-    headers: { 'Authorization': 'Bearer ' + access_token },
-    json: true
-  };
+app.get('/pause', async function(req, res) {
+  if (!access_token) {
+    res.status(401).json({ error: 'No access token available' });
+    return;
+  }
 
-  request.put(options, function(error, response, body) {
-    if (!error && response.statusCode === 204) {
+  try {
+    const response = await fetch('https://api.spotify.com/v1/me/player/pause', {
+      method: 'PUT',
+      headers: {
+        'Authorization': `Bearer ${access_token}`
+      }
+    });
+
+    if (response.status === 204) {
       res.json({ success: true });
     } else {
       res.json({ success: false });
     }
-  });
+  } catch (error) {
+    console.error('Error in pause:', error);
+    res.status(500).json({ error: 'Failed to pause' });
+  }
 });
 
-app.get('/play', function(req, res) {
-  const options = {
-    url: 'https://api.spotify.com/v1/me/player/play',
-    headers: { 'Authorization': 'Bearer ' + access_token },
-    json: true
-  };
+app.get('/play', async function(req, res) {
+  if (!access_token) {
+    res.status(401).json({ error: 'No access token available' });
+    return;
+  }
 
-  request.put(options, function(error, response, body) {
-    if (!error && response.statusCode === 204) {
+  try {
+    const response = await fetch('https://api.spotify.com/v1/me/player/play', {
+      method: 'PUT',
+      headers: {
+        'Authorization': `Bearer ${access_token}`
+      }
+    });
+
+    if (response.status === 204) {
       res.json({ success: true });
     } else {
       res.json({ success: false });
     }
-  });
+  } catch (error) {
+    console.error('Error in play:', error);
+    res.status(500).json({ error: 'Failed to play' });
+  }
 });
 
-app.get('/current-playback', function(req, res) {
-  const options = {
-    url: 'https://api.spotify.com/v1/me/player',
-    headers: { 'Authorization': 'Bearer ' + access_token },
-    json: true
-  };
+app.get('/current-playback', async function(req, res) {
+  if (!access_token) {
+    res.status(401).json({ error: 'No access token available' });
+    return;
+  }
 
-  request.get(options, function(error, response, body) {
-    if (!error && response.statusCode === 200) {
-      res.json(body);
+  try {
+    const response = await fetch('https://api.spotify.com/v1/me/player', {
+      headers: {
+        'Authorization': `Bearer ${access_token}`
+      }
+    });
+
+    if (response.ok) {
+      const data = await response.json();
+      res.json(data);
     } else {
       res.json({ error: 'Failed to get current playback state' });
     }
-  });
+  } catch (error) {
+    console.error('Error in current-playback:', error);
+    res.status(500).json({ error: 'Failed to get playback state' });
+  }
 });
 
-console.log(`Listening on port ${port}`);
-app.listen(port);
+if (process.env.NODE_ENV !== 'production') {
+  app.listen(port, () => {
+    console.log(`Listening on port ${port}`);
+  });
+}
+
+module.exports = app;
