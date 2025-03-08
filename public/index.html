@@ -215,7 +215,7 @@
             
             <div class="footer">
                 <span class="logout-link" id="logoutButton">ログアウト</span>
-                <span class="version-info" id="versionInfo">v1.2.1</span>
+                <span class="version-info" id="versionInfo">v1.3.0</span>
             </div>
         </div>
     </div>
@@ -230,6 +230,14 @@
         let lastTrackInfo = null;
         let deviceActive = false;
         let tokenRefreshTimeout = null;
+        
+        // 連続ボタン押下のカウント用変数
+        let seekBackwardCount = 0;
+        let seekForwardCount = 0;
+        let seekBackwardTimer = null;
+        let seekForwardTimer = null;
+        const SEEK_TIMEOUT = 500; // 連続押下と判定する時間間隔（ミリ秒）
+        const SEEK_STEP = 5000; // 1回の早送り・巻き戻し時間（ミリ秒）
 
         // ハッシュパラメータからアクセストークンとセッションIDを取得
         function getHashParams() {
@@ -480,7 +488,7 @@
 
         window.onload = async () => {
             // バージョン情報を表示
-            document.getElementById('versionInfo').textContent = 'v1.2.1 (' + new Date().toISOString().split('T')[0] + ')';
+            document.getElementById('versionInfo').textContent = 'v1.3.0 (' + new Date().toISOString().split('T')[0] + ')';
             
             // ログインボタンのイベントリスナーを設定
             document.getElementById('loginButton').addEventListener('click', function(e) {
@@ -744,6 +752,112 @@
             }
         }
 
+        // 現在の再生位置を取得する関数
+        async function getCurrentPosition() {
+            if (!sessionId || !deviceActive) {
+                return null;
+            }
+            
+            try {
+                const response = await fetch(`/current-playback?session_id=${sessionId}`);
+                const data = await response.json();
+                
+                if (data && data.progress_ms !== undefined) {
+                    return data.progress_ms;
+                }
+                return null;
+            } catch (error) {
+                console.error('Error getting current position:', error);
+                return null;
+            }
+        }
+
+        // 巻き戻しボタンの連続押下を処理する関数
+        async function handleSeekBackward() {
+            // カウントを増やす
+            seekBackwardCount++;
+            
+            // 既存のタイマーをクリア
+            if (seekBackwardTimer) {
+                clearTimeout(seekBackwardTimer);
+            }
+            
+            // 一定時間後に実行するタイマーを設定
+            seekBackwardTimer = setTimeout(async () => {
+                // ボタンを一時的に無効化
+                const button = document.getElementById('seekBackward');
+                button.disabled = true;
+                button.style.opacity = '0.7';
+                
+                try {
+                    // 現在の再生位置を取得
+                    const currentPosition = await getCurrentPosition();
+                    if (currentPosition !== null) {
+                        // 合計の巻き戻し時間を計算
+                        const seekAmount = seekBackwardCount * SEEK_STEP;
+                        const newPosition = Math.max(0, currentPosition - seekAmount);
+                        
+                        // 巻き戻し実行
+                        await seekPosition(newPosition);
+                        
+                        // カウントをリセット
+                        seekBackwardCount = 0;
+                    }
+                } catch (error) {
+                    console.error('Error in handleSeekBackward:', error);
+                } finally {
+                    // 処理が完了したらボタンを再度有効化
+                    setTimeout(() => {
+                        button.disabled = false;
+                        button.style.opacity = '1';
+                    }, 300);
+                }
+            }, SEEK_TIMEOUT);
+        }
+
+        // 早送りボタンの連続押下を処理する関数
+        async function handleSeekForward() {
+            // カウントを増やす
+            seekForwardCount++;
+            
+            // 既存のタイマーをクリア
+            if (seekForwardTimer) {
+                clearTimeout(seekForwardTimer);
+            }
+            
+            // 一定時間後に実行するタイマーを設定
+            seekForwardTimer = setTimeout(async () => {
+                // ボタンを一時的に無効化
+                const button = document.getElementById('seekForward');
+                button.disabled = true;
+                button.style.opacity = '0.7';
+                
+                try {
+                    // 現在の再生位置を取得
+                    const currentPosition = await getCurrentPosition();
+                    if (currentPosition !== null) {
+                        // 合計の早送り時間を計算
+                        const seekAmount = seekForwardCount * SEEK_STEP;
+                        const newPosition = currentPosition + seekAmount;
+                        
+                        // 早送り実行
+                        await seekPosition(newPosition);
+                        
+                        // カウントをリセット
+                        seekForwardCount = 0;
+                    }
+                } catch (error) {
+                    console.error('Error in handleSeekForward:', error);
+                } finally {
+                    // 処理が完了したらボタンを再度有効化
+                    setTimeout(() => {
+                        button.disabled = false;
+                        button.style.opacity = '1';
+                    }, 300);
+                }
+            }, SEEK_TIMEOUT);
+        }
+
         // 再生/一時停止を切り替える関数
         async function togglePlayPause() {
             if (!sessionId) {
@@ -819,41 +933,8 @@
                 return;
             }
             
-            // ボタンを一時的に無効化
-            const button = document.getElementById('seekBackward');
-            button.disabled = true;
-            button.style.opacity = '0.7';
-            
-            try {
-                const response = await fetch(`/current-playback?session_id=${sessionId}`);
-                const data = await response.json();
-                
-                if (data && data.progress_ms !== undefined) {
-                    const newPosition = Math.max(0, data.progress_ms - 5000);
-                    await seekPosition(newPosition);
-                } else if (data && data.error) {
-                    if (data.error.includes('token') || data.error.includes('unauthorized') || data.error.includes('Invalid or expired session')) {
-                        const refreshed = await handleAuthError();
-                        if (!refreshed) return;
-                    } else if (data.error.includes('No active device')) {
-                        // デバイス未接続エラーはコンソールにのみ出力（連続操作時）
-                        console.error('アクティブなデバイスがありません');
-                    } else {
-                        // 再生位置取得エラーはコンソールにのみ出力（連続操作時）
-                        console.error('現在の再生位置を取得できません:', data.error);
-                    }
-                }
-            } catch (error) {
-                console.error('Error getting current position:', error);
-                // 再生位置取得エラーはコンソールにのみ出力（連続操作時）
-                console.error('現在の再生位置の取得中にエラーが発生しました:', error.message);
-            } finally {
-                // 処理が完了したらボタンを再度有効化（少し遅延を入れる）
-                setTimeout(() => {
-                    button.disabled = false;
-                    button.style.opacity = '1';
-                }, 300);
-            }
+            // 連続押下処理を実行
+            handleSeekBackward();
         });
 
         document.getElementById('seekForward').addEventListener('click', async () => {
@@ -868,40 +949,8 @@
                 return;
             }
             
-            // ボタンを一時的に無効化
-            const button = document.getElementById('seekForward');
-            button.disabled = true;
-            button.style.opacity = '0.7';
-            
-            try {
-                const response = await fetch(`/current-playback?session_id=${sessionId}`);
-                const data = await response.json();
-                
-                if (data && data.progress_ms !== undefined) {
-                    await seekPosition(data.progress_ms + 5000);
-                } else if (data && data.error) {
-                    if (data.error.includes('token') || data.error.includes('unauthorized') || data.error.includes('Invalid or expired session')) {
-                        const refreshed = await handleAuthError();
-                        if (!refreshed) return;
-                    } else if (data.error.includes('No active device')) {
-                        // デバイス未接続エラーはコンソールにのみ出力（連続操作時）
-                        console.error('アクティブなデバイスがありません');
-                    } else {
-                        // 再生位置取得エラーはコンソールにのみ出力（連続操作時）
-                        console.error('現在の再生位置を取得できません:', data.error);
-                    }
-                }
-            } catch (error) {
-                console.error('Error getting current position:', error);
-                // 再生位置取得エラーはコンソールにのみ出力（連続操作時）
-                console.error('現在の再生位置の取得中にエラーが発生しました:', error.message);
-            } finally {
-                // 処理が完了したらボタンを再度有効化（少し遅延を入れる）
-                setTimeout(() => {
-                    button.disabled = false;
-                    button.style.opacity = '1';
-                }, 300);
-            }
+            // 連続押下処理を実行
+            handleSeekForward();
         });
 
         document.getElementById('playPauseButton').addEventListener('click', togglePlayPause);
