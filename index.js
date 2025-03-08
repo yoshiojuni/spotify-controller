@@ -14,6 +14,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 const client_id = process.env.CLIENT_ID;
 const client_secret = process.env.CLIENT_SECRET;
 const redirect_uri = process.env.REDIRECT_URI || `http://localhost:${port}/callback`;
+console.log('Using redirect URI:', redirect_uri);
 
 // ルートパスへのアクセスを処理
 app.get('/', (req, res) => {
@@ -57,18 +58,25 @@ app.get('/seek', async (req, res) => {
 
 app.get('/login', (req, res) => {
   const scope = 'user-read-playback-state user-modify-playback-state';
-  res.redirect('https://accounts.spotify.com/authorize?' +
+  console.log('Login request, redirecting with URI:', redirect_uri);
+  
+  // 明示的にリダイレクトURIを指定
+  const auth_url = 'https://accounts.spotify.com/authorize?' +
     qs.stringify({
       response_type: 'code',
       client_id: client_id,
       scope: scope,
       redirect_uri: redirect_uri,
-    })
-  );
+    });
+  
+  console.log('Auth URL:', auth_url);
+  res.redirect(auth_url);
 });
 
 app.get('/callback', async (req, res) => {
   const code = req.query.code || null;
+  console.log('Callback received with code:', code ? 'コード受信' : 'コードなし');
+  console.log('Using redirect URI for token exchange:', redirect_uri);
 
   const authOptions = {
     url: 'https://accounts.spotify.com/api/token',
