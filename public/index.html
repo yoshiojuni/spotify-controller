@@ -83,10 +83,14 @@
             display: inline-flex;
             align-items: center;
             justify-content: center;
-            transition: transform 0.1s;
+            transition: transform 0.1s, opacity 0.3s;
         }
         .control-button:active {
             transform: scale(0.95);
+        }
+        .control-button:disabled {
+            cursor: not-allowed;
+            opacity: 0.7;
         }
         #playPauseButton {
             background-color: #1DB954;
@@ -628,12 +632,12 @@
         async function seekPosition(position) {
             if (!sessionId) {
                 await handleAuthError();
-                return;
+                return false;
             }
             
             if (!deviceActive) {
                 showError('アクティブなデバイスがありません。Spotifyアプリで再生を開始してください。');
-                return;
+                return false;
             }
             
             try {
@@ -643,6 +647,7 @@
                 if (data.success) {
                     updatePlaybackState();
                     hideError();
+                    return true;
                 } else {
                     console.error('Seek failed:', data);
                     if (data.error) {
@@ -650,7 +655,7 @@
                             const refreshed = await handleAuthError();
                             if (refreshed) {
                                 // トークンが更新されたら再試行
-                                seekPosition(position);
+                                return await seekPosition(position);
                             }
                         } else if (data.error.includes('NO_ACTIVE_DEVICE')) {
                             showError('アクティブなデバイスがありません。Spotifyアプリで再生を開始してください。');
@@ -658,10 +663,12 @@
                             showError('シーク失敗: ' + data.error);
                         }
                     }
+                    return false;
                 }
             } catch (error) {
                 console.error('Error seeking position:', error);
                 showError('シーク中にエラーが発生しました: ' + error.message);
+                return false;
             }
         }
 
@@ -669,13 +676,18 @@
         async function togglePlayPause() {
             if (!sessionId) {
                 await handleAuthError();
-                return;
+                return false;
             }
             
             if (!deviceActive && !isPlaying) {
                 showError('アクティブなデバイスがありません。Spotifyアプリで再生を開始してください。');
-                return;
+                return false;
             }
+            
+            // ボタンを一時的に無効化
+            const button = document.getElementById('playPauseButton');
+            button.disabled = true;
+            button.style.opacity = '0.7';
             
             const endpoint = isPlaying ? '/pause' : '/play';
             try {
@@ -687,6 +699,7 @@
                     document.getElementById('playPauseButton').textContent = isPlaying ? '⏸' : '▶';
                     updateStatusDisplay(true, isPlaying);
                     hideError();
+                    return true;
                 } else {
                     console.error('Playback toggle failed:', data);
                     if (data.error) {
@@ -694,7 +707,7 @@
                             const refreshed = await handleAuthError();
                             if (refreshed) {
                                 // トークンが更新されたら再試行
-                                togglePlayPause();
+                                return await togglePlayPause();
                             }
                         } else if (data.error.includes('NO_ACTIVE_DEVICE')) {
                             showError('アクティブなデバイスがありません。Spotifyアプリで再生を開始してください。');
@@ -702,10 +715,18 @@
                             showError('再生/一時停止の切り替えに失敗しました: ' + data.error);
                         }
                     }
+                    return false;
                 }
             } catch (error) {
                 console.error('Error toggling playback:', error);
                 showError('再生/一時停止の切り替え中にエラーが発生しました: ' + error.message);
+                return false;
+            } finally {
+                // 処理が完了したらボタンを再度有効化（少し遅延を入れる）
+                setTimeout(() => {
+                    button.disabled = false;
+                    button.style.opacity = '1';
+                }, 300);
             }
         }
 
@@ -721,13 +742,18 @@
                 return;
             }
             
+            // ボタンを一時的に無効化
+            const button = document.getElementById('seekBackward');
+            button.disabled = true;
+            button.style.opacity = '0.7';
+            
             try {
                 const response = await fetch(`/current-playback?session_id=${sessionId}`);
                 const data = await response.json();
                 
                 if (data && data.progress_ms !== undefined) {
                     const newPosition = Math.max(0, data.progress_ms - 5000);
-                    seekPosition(newPosition);
+                    await seekPosition(newPosition);
                 } else if (data && data.error) {
                     if (data.error.includes('token') || data.error.includes('unauthorized') || data.error.includes('Invalid or expired session')) {
                         const refreshed = await handleAuthError();
@@ -741,6 +767,12 @@
             } catch (error) {
                 console.error('Error getting current position:', error);
                 showError('現在の再生位置の取得中にエラーが発生しました: ' + error.message);
+            } finally {
+                // 処理が完了したらボタンを再度有効化（少し遅延を入れる）
+                setTimeout(() => {
+                    button.disabled = false;
+                    button.style.opacity = '1';
+                }, 300);
             }
         });
 
@@ -755,12 +787,17 @@
                 return;
             }
             
+            // ボタンを一時的に無効化
+            const button = document.getElementById('seekForward');
+            button.disabled = true;
+            button.style.opacity = '0.7';
+            
             try {
                 const response = await fetch(`/current-playback?session_id=${sessionId}`);
                 const data = await response.json();
                 
                 if (data && data.progress_ms !== undefined) {
-                    seekPosition(data.progress_ms + 5000);
+                    await seekPosition(data.progress_ms + 5000);
                 } else if (data && data.error) {
                     if (data.error.includes('token') || data.error.includes('unauthorized') || data.error.includes('Invalid or expired session')) {
                         const refreshed = await handleAuthError();
@@ -774,6 +811,12 @@
             } catch (error) {
                 console.error('Error getting current position:', error);
                 showError('現在の再生位置の取得中にエラーが発生しました: ' + error.message);
+            } finally {
+                // 処理が完了したらボタンを再度有効化（少し遅延を入れる）
+                setTimeout(() => {
+                    button.disabled = false;
+                    button.style.opacity = '1';
+                }, 300);
             }
         });
 
