@@ -57,7 +57,8 @@ app.get('/seek', async (req, res) => {
   
 
 app.get('/login', (req, res) => {
-  const scope = 'user-read-playback-state user-modify-playback-state';
+  // より多くの権限を要求（歌詞取得のため）
+  const scope = 'user-read-playback-state user-modify-playback-state user-read-currently-playing';
   console.log('Login request, redirecting with URI:', redirect_uri);
   
   // 明示的にリダイレクトURIを指定
@@ -120,6 +121,57 @@ app.get('/now-playing', async (req, res) => {
     res.send(`Currently playing: ${track.name} by ${track.artists.map(a => a.name).join(", ")}`);
   } catch (error) {
     res.send('Error fetching current track: ' + error.message);
+  }
+});
+
+// 歌詞を取得するAPI
+app.get('/lyrics', async (req, res) => {
+  const token = req.query.token;
+  
+  try {
+    // 現在再生中の曲情報を取得
+    const playbackResponse = await axios.get('https://api.spotify.com/v1/me/player/currently-playing', {
+      headers: { 'Authorization': 'Bearer ' + token }
+    });
+    
+    if (playbackResponse.status === 204 || !playbackResponse.data) {
+      return res.json({ error: '現在再生中の曲がありません。' });
+    }
+    
+    const trackId = playbackResponse.data.item.id;
+    
+    // 歌詞情報を取得（Spotify APIの新機能）
+    try {
+      const lyricsResponse = await axios.get(`https://api.spotify.com/v1/tracks/${trackId}/lyrics`, {
+        headers: { 'Authorization': 'Bearer ' + token }
+      });
+      
+      if (lyricsResponse.data && lyricsResponse.data.lyrics) {
+        return res.json({ lyrics: lyricsResponse.data.lyrics.lines });
+      } else {
+        return res.json({ error: 'この曲の歌詞情報は利用できません。' });
+      }
+    } catch (lyricsError) {
+      console.log('歌詞取得エラー:', lyricsError.message);
+      
+      // 曲の基本情報を返す（歌詞が取得できない場合）
+      const track = playbackResponse.data.item;
+      return res.json({ 
+        error: 'この曲の歌詞情報は利用できません。',
+        track: {
+          name: track.name,
+          artist: track.artists.map(a => a.name).join(', '),
+          album: track.album.name
+        }
+      });
+    }
+  } catch (error) {
+    console.error('エラー:', error.message);
+    if (error.response && error.response.status === 401) {
+      res.status(401).json({ error: 'トークンの有効期限が切れました。再度ログインしてください。' });
+    } else {
+      res.status(500).json({ error: 'エラーが発生しました: ' + error.message });
+    }
   }
 });
 

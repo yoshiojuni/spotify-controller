@@ -60,6 +60,41 @@
             flex-direction: column;
             gap: 10px;
         }
+        #lyricsContainer {
+            margin-top: 20px;
+            padding: 15px;
+            background-color: #f8f8f8;
+            border-radius: 8px;
+            max-height: 300px;
+            overflow-y: auto;
+            display: none;
+        }
+        .lyrics-line {
+            margin-bottom: 8px;
+            font-size: 16px;
+            line-height: 1.5;
+        }
+        .lyrics-title {
+            font-weight: bold;
+            margin-bottom: 10px;
+            font-size: 18px;
+        }
+        .tab-buttons {
+            display: flex;
+            margin-top: 20px;
+        }
+        .tab-button {
+            background-color: #f0f0f0;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 8px 8px 0 0;
+            cursor: pointer;
+            margin-right: 5px;
+        }
+        .tab-button.active {
+            background-color: #1DB954;
+            color: white;
+        }
         @media (max-width: 480px) {
             body {
                 padding: 10px;
@@ -88,12 +123,27 @@
                     現在の再生位置: --:--
                 </div>
             </div>
-            <div class="controls">
-                <button class="button" onclick="seek(-5000)">-5秒</button>
-                <button class="button" onclick="seek(-1000)">-1秒</button>
-                <button class="button" onclick="updateNowPlaying()">更新</button>
-                <button class="button" onclick="seek(1000)">+1秒</button>
-                <button class="button" onclick="seek(5000)">+5秒</button>
+            
+            <div class="tab-buttons">
+                <button class="tab-button active" onclick="showTab('controls')">コントロール</button>
+                <button class="tab-button" onclick="showTab('lyrics')">歌詞</button>
+            </div>
+            
+            <div id="controlsTab" class="tab-content">
+                <div class="controls">
+                    <button class="button" onclick="seek(-5000)">-5秒</button>
+                    <button class="button" onclick="seek(-1000)">-1秒</button>
+                    <button class="button" onclick="updateNowPlaying()">更新</button>
+                    <button class="button" onclick="seek(1000)">+1秒</button>
+                    <button class="button" onclick="seek(5000)">+5秒</button>
+                </div>
+            </div>
+            
+            <div id="lyricsTab" class="tab-content" style="display: none;">
+                <div id="lyricsContainer">
+                    <div class="lyrics-title">歌詞</div>
+                    <div id="lyrics">歌詞を取得中...</div>
+                </div>
             </div>
         </div>
     </div>
@@ -113,6 +163,7 @@
         }
 
         let accessToken = null;
+        let currentTab = 'controls';
 
         function formatTime(ms) {
             const seconds = Math.floor(ms / 1000);
@@ -128,8 +179,28 @@
                 document.getElementById('loginSection').style.display = 'none';
                 document.getElementById('controlSection').style.display = 'block';
                 updateNowPlaying();
+                fetchLyrics();
             }
         };
+
+        function showTab(tabName) {
+            currentTab = tabName;
+            
+            // タブボタンのアクティブ状態を更新
+            document.querySelectorAll('.tab-button').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            document.querySelector(`.tab-button[onclick="showTab('${tabName}')"]`).classList.add('active');
+            
+            // タブコンテンツの表示/非表示を切り替え
+            document.getElementById('controlsTab').style.display = tabName === 'controls' ? 'block' : 'none';
+            document.getElementById('lyricsTab').style.display = tabName === 'lyrics' ? 'block' : 'none';
+            
+            if (tabName === 'lyrics') {
+                document.getElementById('lyricsContainer').style.display = 'block';
+                fetchLyrics();
+            }
+        }
 
         function login() {
             window.location.href = '/login';
@@ -146,9 +217,46 @@
                     accessToken = null;
                 } else {
                     document.getElementById('nowPlaying').innerText = text;
+                    if (currentTab === 'lyrics') {
+                        fetchLyrics();
+                    }
                 }
             } catch (error) {
                 document.getElementById('nowPlaying').innerText = 'エラーが発生しました: ' + error;
+            }
+        }
+
+        async function fetchLyrics() {
+            if (!accessToken) return;
+            
+            document.getElementById('lyrics').innerText = '歌詞を取得中...';
+            
+            try {
+                const response = await fetch(`/lyrics?token=${accessToken}`);
+                const data = await response.json();
+                
+                if (response.status === 401) {
+                    document.getElementById('lyrics').innerText = 'トークンの有効期限が切れました。再度ログインしてください。';
+                    document.getElementById('loginSection').style.display = 'block';
+                    document.getElementById('controlSection').style.display = 'none';
+                    accessToken = null;
+                    return;
+                }
+                
+                if (data.error) {
+                    let errorMessage = data.error;
+                    if (data.track) {
+                        errorMessage += `\n\n曲情報:\n${data.track.name} - ${data.track.artist}\nアルバム: ${data.track.album}`;
+                    }
+                    document.getElementById('lyrics').innerText = errorMessage;
+                } else if (data.lyrics) {
+                    const lyricsHtml = data.lyrics.map(line => 
+                        `<div class="lyrics-line">${line.words}</div>`
+                    ).join('');
+                    document.getElementById('lyrics').innerHTML = lyricsHtml;
+                }
+            } catch (error) {
+                document.getElementById('lyrics').innerText = 'エラーが発生しました: ' + error;
             }
         }
 
