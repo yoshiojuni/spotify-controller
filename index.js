@@ -79,6 +79,25 @@ loadSessionsFromFile();
 // 定期的にセッションを保存（5分ごと）
 setInterval(saveSessionsToFile, 5 * 60 * 1000);
 
+// 古いセッションをクリーンアップする関数（30日以上使われていないセッションを削除）
+function cleanupOldSessions() {
+  const now = Date.now();
+  const thirtyDaysAgo = now - (30 * 24 * 60 * 60 * 1000);
+  
+  Object.keys(sessions).forEach(sessionId => {
+    if (sessions[sessionId].last_used < thirtyDaysAgo) {
+      console.log(`Removing old session: ${sessionId}`);
+      delete sessions[sessionId];
+    }
+  });
+  
+  console.log(`Session cleanup completed. Active sessions: ${Object.keys(sessions).length}`);
+  saveSessionsToFile();
+}
+
+// 定期的に古いセッションをクリーンアップ（1日に1回）
+setInterval(cleanupOldSessions, 24 * 60 * 60 * 1000);
+
 app.get('/login', function(req, res) {
   console.log('Login route accessed');
   // セッションIDを生成
@@ -182,38 +201,67 @@ async function refreshAccessToken(sessionId) {
     const authorization = 'Basic ' + Buffer.from(client_id + ':' + client_secret).toString('base64');
     
     console.log('Refreshing access token for session:', sessionId);
-    const response = await fetch(tokenUrl, {
-      method: 'POST',
-      headers: {
-        'Authorization': authorization,
-        'Content-Type': 'application/x-www-form-urlencoded'
-      },
-      body: new URLSearchParams({
-        refresh_token: sessions[sessionId].refresh_token,
-        grant_type: 'refresh_token'
-      })
-    });
+    
+    // 最大3回まで再試行
+    let attempts = 0;
+    const maxAttempts = 3;
+    
+    while (attempts < maxAttempts) {
+      attempts++;
+      
+      try {
+        const response = await fetch(tokenUrl, {
+          method: 'POST',
+          headers: {
+            'Authorization': authorization,
+            'Content-Type': 'application/x-www-form-urlencoded'
+          },
+          body: new URLSearchParams({
+            refresh_token: sessions[sessionId].refresh_token,
+            grant_type: 'refresh_token'
+          })
+        });
 
-    if (!response.ok) {
-      const errorData = await response.text();
-      console.error('Token refresh failed:', response.status, errorData);
-      return false;
-    }
+        if (!response.ok) {
+          const errorData = await response.text();
+          console.error(`Token refresh attempt ${attempts} failed:`, response.status, errorData);
+          
+          if (attempts >= maxAttempts) {
+            return false;
+          }
+          
+          // 少し待ってから再試行
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          continue;
+        }
 
-    const data = await response.json();
-    console.log('Token refreshed successfully for session:', sessionId);
-    
-    sessions[sessionId].access_token = data.access_token;
-    if (data.refresh_token) {
-      sessions[sessionId].refresh_token = data.refresh_token;
+        const data = await response.json();
+        console.log('Token refreshed successfully for session:', sessionId);
+        
+        sessions[sessionId].access_token = data.access_token;
+        if (data.refresh_token) {
+          sessions[sessionId].refresh_token = data.refresh_token;
+        }
+        sessions[sessionId].token_expiry = Date.now() + (data.expires_in * 1000);
+        sessions[sessionId].last_used = Date.now();
+        
+        // セッションを保存
+        saveSessionsToFile();
+        
+        return sessions[sessionId].access_token;
+      } catch (error) {
+        console.error(`Token refresh attempt ${attempts} error:`, error);
+        
+        if (attempts >= maxAttempts) {
+          return false;
+        }
+        
+        // 少し待ってから再試行
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
     }
-    sessions[sessionId].token_expiry = Date.now() + (data.expires_in * 1000);
-    sessions[sessionId].last_used = Date.now();
     
-    // セッションを保存
-    saveSessionsToFile();
-    
-    return sessions[sessionId].access_token;
+    return false;
   } catch (error) {
     console.error('Error refreshing token:', error);
     return false;
@@ -229,8 +277,8 @@ async function ensureValidToken(sessionId) {
   // セッションの最終使用時間を更新
   sessions[sessionId].last_used = Date.now();
 
-  // トークンの有効期限が切れている場合、または切れる60秒前の場合は更新
-  if (!sessions[sessionId].token_expiry || Date.now() > sessions[sessionId].token_expiry - 60000) {
+  // トークンの有効期限が切れている場合、または切れる120秒前の場合は更新
+  if (!sessions[sessionId].token_expiry || Date.now() > sessions[sessionId].token_expiry - 120000) {
     console.log('Token expired or about to expire, refreshing...');
     const newToken = await refreshAccessToken(sessionId);
     return newToken;
@@ -261,14 +309,29 @@ app.get('/session-status', function(req, res) {
   const sessionId = req.query.session_id;
   
   if (!sessionId || !sessions[sessionId]) {
-    res.json({ valid: false });
-    return;
+    return res.json({ valid: false, reason: 'session_not_found' });
   }
   
-  res.json({ 
-    valid: true,
-    expires_in: sessions[sessionId].token_expiry ? 
-      Math.floor((sessions[sessionId].token_expiry - Date.now()) / 1000) : 0
+  // セッションの最終使用時間を更新
+  sessions[sessionId].last_used = Date.now();
+  
+  // トークンの有効期限をチェック
+  const tokenExpiry = sessions[sessionId].token_expiry || 0;
+  const now = Date.now();
+  const expiresIn = Math.max(0, tokenExpiry - now);
+  
+  // トークンが期限切れかどうかをチェック
+  const isTokenValid = expiresIn > 0;
+  
+  // リフレッシュトークンがあるかチェック
+  const hasRefreshToken = !!sessions[sessionId].refresh_token;
+  
+  return res.json({
+    valid: isTokenValid || hasRefreshToken,
+    token_valid: isTokenValid,
+    expires_in: Math.floor(expiresIn / 1000),
+    can_refresh: hasRefreshToken,
+    session_age: Math.floor((now - (sessions[sessionId].created || now)) / 1000)
   });
 });
 
@@ -478,33 +541,10 @@ app.get('/current-playback', async function(req, res) {
   }
 });
 
-// 古いセッションをクリーンアップする関数（7日以上使われていないセッションを削除）
-function cleanupSessions() {
-  const now = Date.now();
-  const sessionIds = Object.keys(sessions);
-  let cleanedCount = 0;
-  
-  for (const sessionId of sessionIds) {
-    if (now - sessions[sessionId].last_used > 7 * 24 * 60 * 60 * 1000) {
-      console.log('Cleaning up old session:', sessionId);
-      delete sessions[sessionId];
-      cleanedCount++;
-    }
-  }
-  
-  if (cleanedCount > 0) {
-    saveSessionsToFile();
-    console.log(`Cleaned up ${cleanedCount} old sessions`);
-  }
-}
-
 // ランダムなセッションIDを生成する関数
 function generateSessionId() {
   return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
 }
-
-// 定期的にセッションをクリーンアップ（1日ごと）
-setInterval(cleanupSessions, 24 * 60 * 60 * 1000);
 
 // データディレクトリを作成
 try {

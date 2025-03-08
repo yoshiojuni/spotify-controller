@@ -273,13 +273,42 @@
             if (!sessionId) return false;
             
             try {
-                const response = await fetch(`/session-status?session_id=${sessionId}`);
-                if (!response.ok) {
-                    return false;
+                // 最大3回まで再試行
+                let attempts = 0;
+                const maxAttempts = 3;
+                
+                while (attempts < maxAttempts) {
+                    attempts++;
+                    
+                    try {
+                        const response = await fetch(`/session-status?session_id=${sessionId}`);
+                        if (!response.ok) {
+                            console.error(`Session check attempt ${attempts} failed:`, response.status);
+                            
+                            if (attempts >= maxAttempts) {
+                                return false;
+                            }
+                            
+                            // 少し待ってから再試行
+                            await new Promise(resolve => setTimeout(resolve, 1000));
+                            continue;
+                        }
+                        
+                        const data = await response.json();
+                        return data.valid;
+                    } catch (error) {
+                        console.error(`Session check attempt ${attempts} error:`, error);
+                        
+                        if (attempts >= maxAttempts) {
+                            return false;
+                        }
+                        
+                        // 少し待ってから再試行
+                        await new Promise(resolve => setTimeout(resolve, 1000));
+                    }
                 }
                 
-                const data = await response.json();
-                return data.valid;
+                return false;
             } catch (error) {
                 console.error('Error checking session validity:', error);
                 return false;
@@ -293,21 +322,50 @@
                     throw new Error('セッションIDがありません');
                 }
                 
-                const response = await fetch(`/token?session_id=${sessionId}`);
-                if (!response.ok) {
-                    throw new Error('トークンの更新に失敗しました');
+                // 最大3回まで再試行
+                let attempts = 0;
+                const maxAttempts = 3;
+                
+                while (attempts < maxAttempts) {
+                    attempts++;
+                    
+                    try {
+                        const response = await fetch(`/token?session_id=${sessionId}`);
+                        if (!response.ok) {
+                            console.error(`Token refresh attempt ${attempts} failed:`, response.status);
+                            
+                            if (attempts >= maxAttempts) {
+                                throw new Error('トークンの更新に失敗しました');
+                            }
+                            
+                            // 少し待ってから再試行
+                            await new Promise(resolve => setTimeout(resolve, 1000));
+                            continue;
+                        }
+                        
+                        const data = await response.json();
+                        if (data.access_token) {
+                            accessToken = data.access_token;
+                            localStorage.setItem('spotify_access_token', accessToken);
+                            localStorage.setItem('spotify_session_time', Date.now().toString());
+                            console.log('トークンを更新しました');
+                            return true;
+                        } else {
+                            throw new Error('トークンの取得に失敗しました');
+                        }
+                    } catch (error) {
+                        console.error(`Token refresh attempt ${attempts} error:`, error);
+                        
+                        if (attempts >= maxAttempts) {
+                            throw error;
+                        }
+                        
+                        // 少し待ってから再試行
+                        await new Promise(resolve => setTimeout(resolve, 1000));
+                    }
                 }
                 
-                const data = await response.json();
-                if (data.access_token) {
-                    accessToken = data.access_token;
-                    localStorage.setItem('spotify_access_token', accessToken);
-                    localStorage.setItem('spotify_session_time', Date.now().toString());
-                    console.log('トークンを更新しました');
-                    return true;
-                } else {
-                    throw new Error('トークンの取得に失敗しました');
-                }
+                throw new Error('トークンの更新に失敗しました');
             } catch (error) {
                 console.error('トークン更新エラー:', error);
                 return false;
@@ -321,7 +379,7 @@
                 clearInterval(sessionCheckInterval);
             }
             
-            // 10分ごとにセッションの有効性をチェック
+            // 5分ごとにセッションの有効性をチェック
             sessionCheckInterval = setInterval(async () => {
                 const isValid = await checkSessionValidity();
                 if (!isValid) {
@@ -332,7 +390,7 @@
                         logout();
                     }
                 }
-            }, 10 * 60 * 1000);
+            }, 5 * 60 * 1000);
         }
 
         // ログアウト処理
@@ -408,15 +466,20 @@
                 // セッションが古すぎる場合は更新
                 const sessionTime = parseInt(session.sessionTime || '0');
                 const now = Date.now();
-                if (sessionTime && now - sessionTime > 12 * 60 * 60 * 1000) { // 12時間以上経過
+                if (sessionTime && now - sessionTime > 6 * 60 * 60 * 1000) { // 6時間以上経過
                     console.log('Session is too old, refreshing token');
                     if (sessionId) {
-                        const refreshed = await refreshToken();
-                        if (!refreshed) {
-                            // トークン更新に失敗した場合はセッションをクリア
-                            removeSessionFromStorage();
-                            accessToken = null;
-                            sessionId = null;
+                        try {
+                            const refreshed = await refreshToken();
+                            if (!refreshed) {
+                                // トークン更新に失敗した場合はセッションをクリア
+                                removeSessionFromStorage();
+                                accessToken = null;
+                                sessionId = null;
+                            }
+                        } catch (error) {
+                            console.error('Error refreshing token on load:', error);
+                            // エラーが発生した場合でもセッションを維持
                         }
                     }
                 }
