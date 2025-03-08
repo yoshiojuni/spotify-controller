@@ -240,7 +240,7 @@
                 <div id="trackName"></div>
                 <div id="artistName"></div>
                 <div id="progressDisplay">--:-- / --:--</div>
-                <div id="playbackStatus" style="display: none;"></div>
+                <div id="trackPlaybackStatus" style="display: none;"></div>
             </div>
             <div id="errorMessage"></div>
             
@@ -733,11 +733,17 @@
                     
                     // 最後に再生していた曲の情報を保持
                     if (lastTrackInfo && lastTrackInfo.item) {
-                        document.getElementById('playbackStatus').textContent = '一時停止中';
-                        document.getElementById('playbackStatus').style.display = 'block';
+                        const playbackStatusElement = document.getElementById('trackPlaybackStatus');
+                        if (playbackStatusElement) {
+                            playbackStatusElement.textContent = '一時停止中';
+                            playbackStatusElement.style.display = 'block';
+                        }
                     } else {
-                        document.getElementById('playbackStatus').textContent = 'デバイスが接続されていません';
-                        document.getElementById('playbackStatus').style.display = 'block';
+                        const playbackStatusElement = document.getElementById('trackPlaybackStatus');
+                        if (playbackStatusElement) {
+                            playbackStatusElement.textContent = 'デバイスが接続されていません';
+                            playbackStatusElement.style.display = 'block';
+                        }
                     }
                     
                     updatePlayPauseButton(false);
