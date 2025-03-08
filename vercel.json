@@ -8,6 +8,26 @@
   ],
   "routes": [
     {
+      "src": "/",
+      "dest": "index.js"
+    },
+    {
+      "src": "/login",
+      "dest": "index.js"
+    },
+    {
+      "src": "/callback",
+      "dest": "index.js"
+    },
+    {
+      "src": "/seek",
+      "dest": "index.js"
+    },
+    {
+      "src": "/now-playing",
+      "dest": "index.js"
+    },
+    {
       "src": "/(.*)",
       "dest": "index.js"
     }
