@@ -517,7 +517,6 @@
             const artistName = trackData.artists ? trackData.artists.map(artist => artist.name).join(', ') : '不明なアーティスト';
             
             document.getElementById('nowPlaying').innerHTML = `再生中の曲: ${trackName}`;
-            document.getElementById('trackInfo').textContent = `アーティスト: ${artistName}`;
             
             // 最後に再生していた曲の情報を保存
             saveLastTrackInfo({
@@ -536,6 +535,12 @@
                 // 現在のURLを保存
                 localStorage.setItem('spotify_redirect_after_login', window.location.href);
             });
+            
+            // フッターのログアウトリンクにイベントリスナーを設定
+            const logoutLink = document.getElementById('logoutLink');
+            if (logoutLink) {
+                logoutLink.addEventListener('click', logout);
+            }
             
             // URLハッシュからトークンとセッションIDを取得
             const params = getHashParams();
@@ -1110,7 +1115,7 @@
         }
     </script>
     <footer style="margin-top: 30px; text-align: center; font-size: 12px; color: #b3b3b3;">
-        <p>Spotify Controller v1.4.0 | <a href="#" id="logoutLink" style="color: #1DB954; text-decoration: none;">ログアウト</a></p>
+        <p>Spotify Controller v1.4.1 | <a href="#" id="logoutLink" style="color: #1DB954; text-decoration: none;">ログアウト</a></p>
     </footer>
 </body>
 </html> 
