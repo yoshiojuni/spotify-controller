@@ -229,6 +229,9 @@
         let currentTab = 'controls';
         let lyricsData = null;
         let lyricsUpdateInterval = null;
+        let isPlaying = false;
+        let currentTrackId = null;
+        let updateInterval = null;
 
         function formatTime(ms) {
             const seconds = Math.floor(ms / 1000);
@@ -443,6 +446,84 @@
             }
             lastTouchEnd = now;
         }, false);
+
+        // 再生状態を更新する関数
+        function updatePlaybackState() {
+            fetch('/current-playback')
+                .then(response => response.json())
+                .then(data => {
+                    if (data && data.item) {
+                        isPlaying = data.is_playing;
+                        const trackName = data.item.name;
+                        const artistName = data.item.artists.map(artist => artist.name).join(', ');
+                        document.getElementById('nowPlaying').textContent = trackName;
+                        document.getElementById('trackInfo').textContent = artistName;
+                        document.getElementById('playPauseButton').textContent = isPlaying ? '⏸' : '▶';
+                        
+                        if (currentTrackId !== data.item.id) {
+                            currentTrackId = data.item.id;
+                        }
+                    }
+                })
+                .catch(error => console.error('Error updating playback state:', error));
+        }
+
+        // 再生位置を変更する関数
+        function seekPosition(position) {
+            fetch(`/seek?position=${position}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        updatePlaybackState();
+                    }
+                })
+                .catch(error => console.error('Error seeking position:', error));
+        }
+
+        // 再生/一時停止を切り替える関数
+        function togglePlayPause() {
+            const endpoint = isPlaying ? '/pause' : '/play';
+            fetch(endpoint)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        isPlaying = !isPlaying;
+                        document.getElementById('playPauseButton').textContent = isPlaying ? '⏸' : '▶';
+                    }
+                })
+                .catch(error => console.error('Error toggling playback:', error));
+        }
+
+        // イベントリスナーの設定
+        document.getElementById('seekBackward').addEventListener('click', () => {
+            fetch('/current-playback')
+                .then(response => response.json())
+                .then(data => {
+                    if (data && data.progress_ms !== undefined) {
+                        const newPosition = Math.max(0, data.progress_ms - 5000);
+                        seekPosition(newPosition);
+                    }
+                });
+        });
+
+        document.getElementById('seekForward').addEventListener('click', () => {
+            fetch('/current-playback')
+                .then(response => response.json())
+                .then(data => {
+                    if (data && data.progress_ms !== undefined) {
+                        seekPosition(data.progress_ms + 5000);
+                    }
+                });
+        });
+
+        document.getElementById('playPauseButton').addEventListener('click', togglePlayPause);
+
+        // ページを離れる時にインターバルをクリア
+        window.addEventListener('beforeunload', () => {
+            if (updateInterval) {
+                clearInterval(updateInterval);
+            }
+        });
     </script>
 </body>
 </html> 
