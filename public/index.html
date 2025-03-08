@@ -3,6 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
     <title>Spotify Controller</title>
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black">
@@ -198,7 +201,7 @@
             
             <div class="footer">
                 <span class="logout-link" id="logoutButton">ログアウト</span>
-                <span class="version-info">v1.1.0</span>
+                <span class="version-info" id="versionInfo">v1.1.0</span>
             </div>
         </div>
     </div>
@@ -449,6 +452,9 @@
         }
 
         window.onload = async () => {
+            // バージョン情報を表示
+            document.getElementById('versionInfo').textContent = 'v1.1.0 (' + new Date().toISOString().split('T')[0] + ')';
+            
             // URLハッシュからトークンとセッションIDを取得
             const params = getHashParams();
             if (params.access_token && params.session_id) {
