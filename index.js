@@ -2,6 +2,7 @@ const express = require('express');
 const fetch = require('node-fetch');
 const dotenv = require('dotenv');
 const path = require('path');
+const fs = require('fs');
 
 const port = process.env.PORT || 8888;
 const app = express();
@@ -22,6 +23,62 @@ app.use(express.static(path.join(__dirname, 'public')));
 // セッション管理（サーバーメモリ内）
 const sessions = {};
 
+// セッションデータを定期的に保存
+function saveSessionsToFile() {
+  try {
+    const sessionsToSave = {};
+    
+    // 機密情報を除外して保存
+    Object.keys(sessions).forEach(sessionId => {
+      const session = sessions[sessionId];
+      sessionsToSave[sessionId] = {
+        refresh_token: session.refresh_token,
+        created: session.created,
+        last_used: session.last_used
+      };
+    });
+    
+    const sessionsDir = path.join(__dirname, 'data');
+    if (!fs.existsSync(sessionsDir)) {
+      fs.mkdirSync(sessionsDir);
+    }
+    
+    fs.writeFileSync(
+      path.join(sessionsDir, 'sessions.json'),
+      JSON.stringify(sessionsToSave, null, 2)
+    );
+    console.log('Sessions saved to file');
+  } catch (error) {
+    console.error('Error saving sessions:', error);
+  }
+}
+
+// セッションデータをファイルから読み込む
+function loadSessionsFromFile() {
+  try {
+    const sessionsFile = path.join(__dirname, 'data', 'sessions.json');
+    if (fs.existsSync(sessionsFile)) {
+      const data = fs.readFileSync(sessionsFile, 'utf8');
+      const loadedSessions = JSON.parse(data);
+      
+      // セッションを復元
+      Object.keys(loadedSessions).forEach(sessionId => {
+        sessions[sessionId] = loadedSessions[sessionId];
+      });
+      
+      console.log('Sessions loaded from file');
+    }
+  } catch (error) {
+    console.error('Error loading sessions:', error);
+  }
+}
+
+// アプリ起動時にセッションを読み込む
+loadSessionsFromFile();
+
+// 定期的にセッションを保存（5分ごと）
+setInterval(saveSessionsToFile, 5 * 60 * 1000);
+
 app.get('/login', function(req, res) {
   console.log('Login route accessed');
   // セッションIDを生成
@@ -29,7 +86,8 @@ app.get('/login', function(req, res) {
   
   // セッションを初期化
   sessions[sessionId] = {
-    created: Date.now()
+    created: Date.now(),
+    last_used: Date.now()
   };
   
   const scope = 'user-read-private user-read-email user-modify-playback-state user-read-playback-state';
@@ -101,6 +159,9 @@ app.get('/callback', async function(req, res) {
     sessions[state].token_expiry = Date.now() + (data.expires_in * 1000);
     sessions[state].last_used = Date.now();
     
+    // セッションを保存
+    saveSessionsToFile();
+    
     // クライアントにセッションIDとアクセストークンを返す
     res.redirect(`/#session_id=${state}&access_token=${data.access_token}`);
   } catch (error) {
@@ -149,6 +210,9 @@ async function refreshAccessToken(sessionId) {
     sessions[sessionId].token_expiry = Date.now() + (data.expires_in * 1000);
     sessions[sessionId].last_used = Date.now();
     
+    // セッションを保存
+    saveSessionsToFile();
+    
     return sessions[sessionId].access_token;
   } catch (error) {
     console.error('Error refreshing token:', error);
@@ -165,8 +229,9 @@ async function ensureValidToken(sessionId) {
   // セッションの最終使用時間を更新
   sessions[sessionId].last_used = Date.now();
 
-  // トークンの有効期限が切れている場合、または切れる30秒前の場合は更新
-  if (!sessions[sessionId].token_expiry || Date.now() > sessions[sessionId].token_expiry - 30000) {
+  // トークンの有効期限が切れている場合、または切れる60秒前の場合は更新
+  if (!sessions[sessionId].token_expiry || Date.now() > sessions[sessionId].token_expiry - 60000) {
+    console.log('Token expired or about to expire, refreshing...');
     const newToken = await refreshAccessToken(sessionId);
     return newToken;
   }
@@ -190,6 +255,21 @@ app.get('/token', async function(req, res) {
   }
 
   res.json({ access_token: token });
+});
+
+app.get('/session-status', function(req, res) {
+  const sessionId = req.query.session_id;
+  
+  if (!sessionId || !sessions[sessionId]) {
+    res.json({ valid: false });
+    return;
+  }
+  
+  res.json({ 
+    valid: true,
+    expires_in: sessions[sessionId].token_expiry ? 
+      Math.floor((sessions[sessionId].token_expiry - Date.now()) / 1000) : 0
+  });
 });
 
 app.get('/seek', async function(req, res) {
@@ -398,16 +478,23 @@ app.get('/current-playback', async function(req, res) {
   }
 });
 
-// 古いセッションをクリーンアップする関数（24時間以上使われていないセッションを削除）
+// 古いセッションをクリーンアップする関数（7日以上使われていないセッションを削除）
 function cleanupSessions() {
   const now = Date.now();
   const sessionIds = Object.keys(sessions);
+  let cleanedCount = 0;
   
   for (const sessionId of sessionIds) {
-    if (now - sessions[sessionId].last_used > 24 * 60 * 60 * 1000) {
+    if (now - sessions[sessionId].last_used > 7 * 24 * 60 * 60 * 1000) {
       console.log('Cleaning up old session:', sessionId);
       delete sessions[sessionId];
+      cleanedCount++;
     }
+  }
+  
+  if (cleanedCount > 0) {
+    saveSessionsToFile();
+    console.log(`Cleaned up ${cleanedCount} old sessions`);
   }
 }
 
@@ -416,8 +503,18 @@ function generateSessionId() {
   return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
 }
 
-// 定期的にセッションをクリーンアップ（1時間ごと）
-setInterval(cleanupSessions, 60 * 60 * 1000);
+// 定期的にセッションをクリーンアップ（1日ごと）
+setInterval(cleanupSessions, 24 * 60 * 60 * 1000);
+
+// データディレクトリを作成
+try {
+  const dataDir = path.join(__dirname, 'data');
+  if (!fs.existsSync(dataDir)) {
+    fs.mkdirSync(dataDir);
+  }
+} catch (error) {
+  console.error('Error creating data directory:', error);
+}
 
 if (process.env.NODE_ENV !== 'production') {
   app.listen(port, () => {

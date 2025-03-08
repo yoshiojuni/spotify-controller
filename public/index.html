@@ -140,6 +140,17 @@
         .status-paused {
             background-color: #FFA500;
         }
+        .footer {
+            margin-top: 30px;
+            text-align: center;
+            font-size: 12px;
+            color: #888;
+        }
+        .logout-link {
+            color: #888;
+            text-decoration: underline;
+            cursor: pointer;
+        }
         @media (max-width: 480px) {
             body {
                 padding: 10px;
@@ -178,6 +189,10 @@
                 <p>※ このコントローラーを使用するには、Spotifyアプリで再生を開始してください。</p>
                 <p><a href="https://open.spotify.com" class="spotify-link" target="_blank">Spotify Web Playerを開く</a></p>
             </div>
+            
+            <div class="footer">
+                <span class="logout-link" id="logoutButton">ログアウト</span>
+            </div>
         </div>
     </div>
 
@@ -186,9 +201,11 @@
         let sessionId = null;
         let isPlaying = false;
         let updateInterval = null;
+        let sessionCheckInterval = null;
         let errorCount = 0;
         let lastTrackInfo = null;
         let deviceActive = false;
+        let tokenRefreshTimeout = null;
 
         // ハッシュパラメータからアクセストークンとセッションIDを取得
         function getHashParams() {
@@ -206,6 +223,7 @@
             if (token && session) {
                 localStorage.setItem('spotify_access_token', token);
                 localStorage.setItem('spotify_session_id', session);
+                localStorage.setItem('spotify_session_time', Date.now().toString());
                 accessToken = token;
                 sessionId = session;
             }
@@ -215,7 +233,8 @@
         function getSessionFromStorage() {
             return {
                 accessToken: localStorage.getItem('spotify_access_token'),
-                sessionId: localStorage.getItem('spotify_session_id')
+                sessionId: localStorage.getItem('spotify_session_id'),
+                sessionTime: localStorage.getItem('spotify_session_time')
             };
         }
 
@@ -237,8 +256,27 @@
         function removeSessionFromStorage() {
             localStorage.removeItem('spotify_access_token');
             localStorage.removeItem('spotify_session_id');
+            localStorage.removeItem('spotify_session_time');
             accessToken = null;
             sessionId = null;
+        }
+
+        // セッションの有効性をチェック
+        async function checkSessionValidity() {
+            if (!sessionId) return false;
+            
+            try {
+                const response = await fetch(`/session-status?session_id=${sessionId}`);
+                if (!response.ok) {
+                    return false;
+                }
+                
+                const data = await response.json();
+                return data.valid;
+            } catch (error) {
+                console.error('Error checking session validity:', error);
+                return false;
+            }
         }
 
         // トークンを更新する
@@ -257,6 +295,7 @@
                 if (data.access_token) {
                     accessToken = data.access_token;
                     localStorage.setItem('spotify_access_token', accessToken);
+                    localStorage.setItem('spotify_session_time', Date.now().toString());
                     console.log('トークンを更新しました');
                     return true;
                 } else {
@@ -266,6 +305,44 @@
                 console.error('トークン更新エラー:', error);
                 return false;
             }
+        }
+
+        // 定期的にセッションをチェック
+        function setupSessionCheck() {
+            // 既存のインターバルをクリア
+            if (sessionCheckInterval) {
+                clearInterval(sessionCheckInterval);
+            }
+            
+            // 10分ごとにセッションの有効性をチェック
+            sessionCheckInterval = setInterval(async () => {
+                const isValid = await checkSessionValidity();
+                if (!isValid) {
+                    console.log('Session is no longer valid');
+                    const refreshed = await refreshToken();
+                    if (!refreshed) {
+                        showError('セッションの有効期限が切れました。再度ログインしてください。');
+                        logout();
+                    }
+                }
+            }, 10 * 60 * 1000);
+        }
+
+        // ログアウト処理
+        function logout() {
+            removeSessionFromStorage();
+            if (updateInterval) {
+                clearInterval(updateInterval);
+            }
+            if (sessionCheckInterval) {
+                clearInterval(sessionCheckInterval);
+            }
+            if (tokenRefreshTimeout) {
+                clearTimeout(tokenRefreshTimeout);
+            }
+            document.getElementById('loginSection').style.display = 'block';
+            document.getElementById('controlSection').style.display = 'none';
+            window.location.reload();
         }
 
         // 再生状態を表示する
@@ -320,12 +397,42 @@
                 const session = getSessionFromStorage();
                 accessToken = session.accessToken;
                 sessionId = session.sessionId;
+                
+                // セッションが古すぎる場合は更新
+                const sessionTime = parseInt(session.sessionTime || '0');
+                const now = Date.now();
+                if (sessionTime && now - sessionTime > 12 * 60 * 60 * 1000) { // 12時間以上経過
+                    console.log('Session is too old, refreshing token');
+                    if (sessionId) {
+                        const refreshed = await refreshToken();
+                        if (!refreshed) {
+                            // トークン更新に失敗した場合はセッションをクリア
+                            removeSessionFromStorage();
+                            accessToken = null;
+                            sessionId = null;
+                        }
+                    }
+                }
             }
             
             // 最後に再生していた曲の情報を取得
             lastTrackInfo = getLastTrackInfo();
             
             if (accessToken && sessionId) {
+                // セッションの有効性をチェック
+                const isValid = await checkSessionValidity();
+                if (!isValid) {
+                    console.log('Session is not valid, trying to refresh token');
+                    const refreshed = await refreshToken();
+                    if (!refreshed) {
+                        console.log('Failed to refresh token, redirecting to login');
+                        removeSessionFromStorage();
+                        document.getElementById('loginSection').style.display = 'block';
+                        document.getElementById('controlSection').style.display = 'none';
+                        return;
+                    }
+                }
+                
                 document.getElementById('loginSection').style.display = 'none';
                 document.getElementById('controlSection').style.display = 'block';
                 
@@ -335,9 +442,15 @@
                     updateStatusDisplay(false, false);
                 }
                 
+                // 定期的なセッションチェックを設定
+                setupSessionCheck();
+                
                 updatePlaybackState();
                 // 定期的に再生状態を更新
                 updateInterval = setInterval(updatePlaybackState, 1000);
+                
+                // ログアウトボタンのイベントリスナーを設定
+                document.getElementById('logoutButton').addEventListener('click', logout);
             }
         };
 
@@ -365,6 +478,9 @@
                 document.getElementById('controlSection').style.display = 'none';
                 if (updateInterval) {
                     clearInterval(updateInterval);
+                }
+                if (sessionCheckInterval) {
+                    clearInterval(sessionCheckInterval);
                 }
                 removeSessionFromStorage();
                 return false;
@@ -607,6 +723,12 @@
         window.addEventListener('beforeunload', () => {
             if (updateInterval) {
                 clearInterval(updateInterval);
+            }
+            if (sessionCheckInterval) {
+                clearInterval(sessionCheckInterval);
+            }
+            if (tokenRefreshTimeout) {
+                clearTimeout(tokenRefreshTimeout);
             }
         });
     </script>
