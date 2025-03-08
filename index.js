@@ -12,28 +12,55 @@ const client_id = process.env.CLIENT_ID;
 const client_secret = process.env.CLIENT_SECRET;
 const redirect_uri = process.env.REDIRECT_URI;
 
+console.log('Environment configuration:');
+console.log('CLIENT_ID:', client_id ? '設定済み' : '未設定');
+console.log('CLIENT_SECRET:', client_secret ? '設定済み' : '未設定');
+console.log('REDIRECT_URI:', redirect_uri);
+
 app.use(express.static(path.join(__dirname, 'public')));
 
 let access_token = null;
 let refresh_token = null;
 
 app.get('/login', function(req, res) {
+  console.log('Login route accessed');
   const scope = 'user-read-private user-read-email user-modify-playback-state user-read-playback-state';
-  res.redirect('https://accounts.spotify.com/authorize?' +
+  const loginUrl = 'https://accounts.spotify.com/authorize?' +
     'response_type=code' +
     '&client_id=' + client_id +
     '&scope=' + encodeURIComponent(scope) +
-    '&redirect_uri=' + encodeURIComponent(redirect_uri));
+    '&redirect_uri=' + encodeURIComponent(redirect_uri);
+  
+  console.log('Redirecting to:', loginUrl);
+  res.redirect(loginUrl);
 });
 
 app.get('/callback', async function(req, res) {
+  console.log('Callback route accessed');
   const code = req.query.code || null;
+  const error = req.query.error || null;
+
+  if (error) {
+    console.error('Error in callback:', error);
+    return res.status(500).json({ error: `Authentication error: ${error}` });
+  }
+
+  if (!code) {
+    console.error('No code received in callback');
+    return res.status(400).json({ error: 'No code provided' });
+  }
+
+  console.log('Received authorization code');
 
   try {
-    const response = await fetch('https://accounts.spotify.com/api/token', {
+    const tokenUrl = 'https://accounts.spotify.com/api/token';
+    const authorization = 'Basic ' + Buffer.from(client_id + ':' + client_secret).toString('base64');
+    
+    console.log('Requesting access token...');
+    const response = await fetch(tokenUrl, {
       method: 'POST',
       headers: {
-        'Authorization': 'Basic ' + (Buffer.from(client_id + ':' + client_secret).toString('base64')),
+        'Authorization': authorization,
         'Content-Type': 'application/x-www-form-urlencoded'
       },
       body: new URLSearchParams({
@@ -44,16 +71,20 @@ app.get('/callback', async function(req, res) {
     });
 
     if (!response.ok) {
-      throw new Error('Token request failed');
+      const errorData = await response.text();
+      console.error('Token request failed:', response.status, errorData);
+      throw new Error(`Token request failed: ${response.status} ${errorData}`);
     }
 
     const data = await response.json();
+    console.log('Token received successfully');
+    
     access_token = data.access_token;
     refresh_token = data.refresh_token;
     res.redirect('/#access_token=' + access_token);
   } catch (error) {
     console.error('Error in callback:', error);
-    res.status(500).json({ error: 'Authentication failed' });
+    res.status(500).json({ error: 'Authentication failed: ' + error.message });
   }
 });
 
