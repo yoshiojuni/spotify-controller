@@ -2,13 +2,14 @@ const express = require('express');
 const axios = require('axios');
 const qs = require('querystring');
 const cors = require('cors');
+const path = require('path');
 require('dotenv').config();
 
 const app = express();
 const port = process.env.PORT || 8888;
 
 app.use(cors());
-app.use(express.static('public'));
+app.use(express.static(path.join(__dirname, 'public')));
 
 const client_id = process.env.CLIENT_ID;
 const client_secret = process.env.CLIENT_SECRET;
@@ -16,7 +17,7 @@ const redirect_uri = process.env.REDIRECT_URI || `http://localhost:${port}/callb
 
 // ルートパスへのアクセスを処理
 app.get('/', (req, res) => {
-  res.sendFile('index.html', { root: './public' });
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
 // 再生位置を±1秒操作するAPI
@@ -112,6 +113,23 @@ app.get('/now-playing', async (req, res) => {
   } catch (error) {
     res.send('Error fetching current track: ' + error.message);
   }
+});
+
+// デバッグ用のルート
+app.get('/debug', (req, res) => {
+  res.json({
+    env: {
+      NODE_ENV: process.env.NODE_ENV,
+      CLIENT_ID: process.env.CLIENT_ID ? '設定済み' : '未設定',
+      CLIENT_SECRET: process.env.CLIENT_SECRET ? '設定済み' : '未設定',
+      REDIRECT_URI: process.env.REDIRECT_URI,
+      PORT: process.env.PORT
+    },
+    paths: {
+      __dirname: __dirname,
+      publicPath: path.join(__dirname, 'public')
+    }
+  });
 });
 
 // ローカル開発環境でのみサーバーを起動
