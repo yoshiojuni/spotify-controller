@@ -14,6 +14,11 @@ const client_id = process.env.CLIENT_ID;
 const client_secret = process.env.CLIENT_SECRET;
 const redirect_uri = process.env.REDIRECT_URI || `http://localhost:${port}/callback`;
 
+// ルートパスへのアクセスを処理
+app.get('/', (req, res) => {
+  res.sendFile('index.html', { root: './public' });
+});
+
 // 再生位置を±1秒操作するAPI
 app.get('/seek', async (req, res) => {
     const token = req.query.token;
