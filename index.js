@@ -109,7 +109,13 @@ app.get('/now-playing', async (req, res) => {
   }
 });
 
-app.listen(port, '0.0.0.0', () => {
-  console.log(`App running on http://localhost:${port}/login`);
-  console.log(`For iPhone access: http://192.168.1.211:${port}`);
-});
+// ローカル開発環境でのみサーバーを起動
+if (process.env.NODE_ENV !== 'production') {
+  app.listen(port, '0.0.0.0', () => {
+    console.log(`App running on http://localhost:${port}/login`);
+    console.log(`For iPhone access: http://192.168.1.211:${port}`);
+  });
+}
+
+// Vercelでのデプロイ用にモジュールをエクスポート
+module.exports = app;
