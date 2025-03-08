@@ -103,10 +103,14 @@ app.get('/login', function(req, res) {
   // セッションIDを生成
   const sessionId = generateSessionId();
   
+  // リダイレクト先を取得（クエリパラメータから）
+  const redirectAfterLogin = req.query.redirect_uri || '';
+  
   // セッションを初期化
   sessions[sessionId] = {
     created: Date.now(),
-    last_used: Date.now()
+    last_used: Date.now(),
+    redirect_after_login: redirectAfterLogin
   };
   
   const scope = 'user-read-private user-read-email user-modify-playback-state user-read-playback-state';

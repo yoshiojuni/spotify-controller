@@ -181,7 +181,7 @@
     <div class="container">
         <h1>Spotify Controller</h1>
         <div id="loginSection">
-            <a href="/login" class="button">Spotifyにログイン</a>
+            <a href="/login" id="loginButton" class="button">Spotifyにログイン</a>
         </div>
         <div id="controlSection" style="display: none;">
             <div id="playbackStatus">
@@ -205,7 +205,7 @@
             
             <div class="footer">
                 <span class="logout-link" id="logoutButton">ログアウト</span>
-                <span class="version-info" id="versionInfo">v1.1.0</span>
+                <span class="version-info" id="versionInfo">v1.2.0</span>
             </div>
         </div>
     </div>
@@ -393,11 +393,24 @@
                     console.log('Session is no longer valid');
                     const refreshed = await refreshToken();
                     if (!refreshed) {
-                        showError('セッションの有効期限が切れました。再度ログインしてください。');
-                        logout();
+                        showError('セッションの有効期限が切れました。自動的に再ログインします...');
+                        
+                        // 現在のURLを保存して自動再ログイン
+                        autoRelogin();
                     }
                 }
             }, 5 * 60 * 1000);
+        }
+
+        // 自動再ログイン処理
+        function autoRelogin() {
+            // 現在のURLを保存
+            localStorage.setItem('spotify_redirect_after_login', window.location.href);
+            
+            // 3秒後に自動的にログインページにリダイレクト
+            setTimeout(() => {
+                window.location.href = '/login';
+            }, 3000);
         }
 
         // ログアウト処理
@@ -457,7 +470,13 @@
 
         window.onload = async () => {
             // バージョン情報を表示
-            document.getElementById('versionInfo').textContent = 'v1.1.0 (' + new Date().toISOString().split('T')[0] + ')';
+            document.getElementById('versionInfo').textContent = 'v1.2.0 (' + new Date().toISOString().split('T')[0] + ')';
+            
+            // ログインボタンのイベントリスナーを設定
+            document.getElementById('loginButton').addEventListener('click', function(e) {
+                // 現在のURLを保存
+                localStorage.setItem('spotify_redirect_after_login', window.location.href);
+            });
             
             // URLハッシュからトークンとセッションIDを取得
             const params = getHashParams();
@@ -465,6 +484,10 @@
                 accessToken = params.access_token;
                 sessionId = params.session_id;
                 saveSessionToStorage(accessToken, sessionId);
+                
+                // リダイレクト先があれば削除
+                localStorage.removeItem('spotify_redirect_after_login');
+                
                 // URLからハッシュを削除
                 window.history.replaceState({}, document.title, window.location.pathname);
             } else {
@@ -482,10 +505,15 @@
                         try {
                             const refreshed = await refreshToken();
                             if (!refreshed) {
-                                // トークン更新に失敗した場合はセッションをクリア
-                                removeSessionFromStorage();
-                                accessToken = null;
-                                sessionId = null;
+                                // トークン更新に失敗した場合は自動再ログイン
+                                localStorage.setItem('spotify_redirect_after_login', window.location.href);
+                                showError('セッションの有効期限が切れました。自動的に再ログインします...');
+                                
+                                // 3秒後に自動的にログインページにリダイレクト
+                                setTimeout(() => {
+                                    window.location.href = '/login';
+                                }, 3000);
+                                return;
                             }
                         } catch (error) {
                             console.error('Error refreshing token on load:', error);
@@ -506,9 +534,9 @@
                     const refreshed = await refreshToken();
                     if (!refreshed) {
                         console.log('Failed to refresh token, redirecting to login');
-                        removeSessionFromStorage();
-                        document.getElementById('loginSection').style.display = 'block';
-                        document.getElementById('controlSection').style.display = 'none';
+                        
+                        // 自動再ログイン
+                        autoRelogin();
                         return;
                     }
                 }
@@ -552,17 +580,12 @@
             // トークンの更新を試みる
             const refreshed = await refreshToken();
             if (!refreshed) {
-                // 更新に失敗した場合はログイン画面を表示
-                showError('認証の有効期限が切れました。再度ログインしてください。');
-                document.getElementById('loginSection').style.display = 'block';
-                document.getElementById('controlSection').style.display = 'none';
-                if (updateInterval) {
-                    clearInterval(updateInterval);
-                }
-                if (sessionCheckInterval) {
-                    clearInterval(sessionCheckInterval);
-                }
-                removeSessionFromStorage();
+                // 更新に失敗した場合は自動再ログイン
+                showError('認証の有効期限が切れました。自動的に再ログインします...');
+                
+                // 自動再ログイン
+                autoRelogin();
+                
                 return false;
             }
             return true;
@@ -571,10 +594,20 @@
         // 再生状態を更新する関数
         async function updatePlaybackState() {
             if (!sessionId) {
-                showError('セッションが無効です。再度ログインしてください。');
-                document.getElementById('loginSection').style.display = 'block';
-                document.getElementById('controlSection').style.display = 'none';
-                return;
+                // セッションがない場合は自動ログイン
+                const redirectAfterLogin = localStorage.getItem('spotify_redirect_after_login');
+                if (redirectAfterLogin) {
+                    showError('セッションが無効です。自動的に再ログインします...');
+                    
+                    // 自動再ログイン
+                    autoRelogin();
+                    return;
+                } else {
+                    showError('セッションが無効です。ログインしてください。');
+                    document.getElementById('loginSection').style.display = 'block';
+                    document.getElementById('controlSection').style.display = 'none';
+                    return;
+                }
             }
             
             try {

@@ -1,6 +1,6 @@
 {
   "name": "spotify-controller",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Spotify playback controller",
   "main": "index.js",
   "scripts": {
