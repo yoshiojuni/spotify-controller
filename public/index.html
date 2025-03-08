@@ -279,7 +279,7 @@
         let seekForwardCount = 0;
         let seekBackwardTimer = null;
         let seekForwardTimer = null;
-        const SEEK_TIMEOUT = 500; // 連続押下と判定する時間間隔（ミリ秒）
+        const SEEK_TIMEOUT = 300; // 連続押下と判定する時間間隔（ミリ秒）を短縮（500ms→300ms）
         const SEEK_STEP = 5000; // 1回の早送り・巻き戻し時間（ミリ秒）
 
         // ハッシュパラメータからアクセストークンとセッションIDを取得
@@ -865,6 +865,9 @@
                 const seekAmount = seekBackwardCount * SEEK_STEP;
                 const predictedPosition = Math.max(0, lastTrackInfo.progress_ms - seekAmount);
                 updateProgressDisplay(predictedPosition, lastTrackInfo.item?.duration_ms || 0);
+                
+                // 現在の再生位置を更新（UIフィードバック用）
+                lastTrackInfo.progress_ms = predictedPosition;
             }
             
             // 一定時間後に実行するタイマーを設定
@@ -894,7 +897,7 @@
                     setTimeout(() => {
                         button.disabled = false;
                         button.style.opacity = '1';
-                    }, 200); // 300msから200msに短縮
+                    }, 200);
                 }
             }, SEEK_TIMEOUT);
         }
@@ -921,6 +924,9 @@
                 const seekAmount = seekForwardCount * SEEK_STEP;
                 const predictedPosition = lastTrackInfo.progress_ms + seekAmount;
                 updateProgressDisplay(predictedPosition, lastTrackInfo.item?.duration_ms || 0);
+                
+                // 現在の再生位置を更新（UIフィードバック用）
+                lastTrackInfo.progress_ms = predictedPosition;
             }
             
             // 一定時間後に実行するタイマーを設定
@@ -950,7 +956,7 @@
                     setTimeout(() => {
                         button.disabled = false;
                         button.style.opacity = '1';
-                    }, 200); // 300msから200msに短縮
+                    }, 200);
                 }
             }, SEEK_TIMEOUT);
         }
@@ -1233,7 +1239,7 @@
         document.getElementById('nextTrack').addEventListener('click', nextTrack);
     </script>
     <footer style="margin-top: 30px; text-align: center; font-size: 12px; color: #b3b3b3;">
-        <p>Spotify Controller v1.5.0 | <a href="#" id="logoutLink" style="color: #1DB954; text-decoration: none;">ログアウト</a></p>
+        <p>Spotify Controller v1.5.1 | <a href="#" id="logoutLink" style="color: #1DB954; text-decoration: none;">ログアウト</a></p>
     </footer>
 </body>
 </html> 
