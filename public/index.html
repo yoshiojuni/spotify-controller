@@ -43,7 +43,7 @@
             background-color: #1ed760;
             transform: scale(0.98);
         }
-        #nowPlaying, #trackInfo, #errorMessage {
+        #nowPlaying, #trackInfo, #errorMessage, #playbackStatus {
             margin: 20px 0;
             padding: 15px;
             background-color: #3E3E3E;
@@ -53,6 +53,11 @@
         #errorMessage {
             background-color: #5E3E3E;
             display: none;
+        }
+        #playbackStatus {
+            background-color: #2E4E3E;
+            text-align: center;
+            font-weight: bold;
         }
         .controls {
             display: flex;
@@ -105,17 +110,6 @@
         .spotify-link:hover {
             text-decoration: underline;
         }
-        @media (max-width: 480px) {
-            body {
-                padding: 10px;
-            }
-            .container {
-                padding: 15px;
-            }
-            .button {
-                padding: 12px 20px;
-            }
-        }
         .loading {
             display: inline-block;
             width: 20px;
@@ -129,6 +123,34 @@
         @keyframes spin {
             to { transform: rotate(360deg); }
         }
+        .status-indicator {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+        .status-active {
+            background-color: #1DB954;
+            box-shadow: 0 0 8px #1DB954;
+        }
+        .status-inactive {
+            background-color: #888;
+        }
+        .status-paused {
+            background-color: #FFA500;
+        }
+        @media (max-width: 480px) {
+            body {
+                padding: 10px;
+            }
+            .container {
+                padding: 15px;
+            }
+            .button {
+                padding: 12px 20px;
+            }
+        }
     </style>
 </head>
 <body>
@@ -138,6 +160,10 @@
             <a href="/login" class="button">Spotifyにログイン</a>
         </div>
         <div id="controlSection" style="display: none;">
+            <div id="playbackStatus">
+                <span class="status-indicator status-inactive" id="statusIndicator"></span>
+                <span id="statusText">接続中...</span>
+            </div>
             <div id="nowPlaying">再生中の曲: 取得中... <span class="loading"></span></div>
             <div id="trackInfo">アーティスト: 取得中...</div>
             <div id="errorMessage"></div>
@@ -161,6 +187,8 @@
         let isPlaying = false;
         let updateInterval = null;
         let errorCount = 0;
+        let lastTrackInfo = null;
+        let deviceActive = false;
 
         // ハッシュパラメータからアクセストークンとセッションIDを取得
         function getHashParams() {
@@ -189,6 +217,20 @@
                 accessToken: localStorage.getItem('spotify_access_token'),
                 sessionId: localStorage.getItem('spotify_session_id')
             };
+        }
+
+        // 最後に再生していた曲の情報をローカルストレージに保存
+        function saveLastTrackInfo(trackInfo) {
+            if (trackInfo) {
+                localStorage.setItem('spotify_last_track', JSON.stringify(trackInfo));
+                lastTrackInfo = trackInfo;
+            }
+        }
+
+        // ローカルストレージから最後に再生していた曲の情報を取得
+        function getLastTrackInfo() {
+            const savedTrack = localStorage.getItem('spotify_last_track');
+            return savedTrack ? JSON.parse(savedTrack) : null;
         }
 
         // セッション情報をローカルストレージから削除
@@ -226,6 +268,44 @@
             }
         }
 
+        // 再生状態を表示する
+        function updateStatusDisplay(isActive, isPlaying) {
+            const statusIndicator = document.getElementById('statusIndicator');
+            const statusText = document.getElementById('statusText');
+            
+            if (!isActive) {
+                statusIndicator.className = 'status-indicator status-inactive';
+                statusText.textContent = 'デバイス未接続';
+                deviceActive = false;
+            } else if (isPlaying) {
+                statusIndicator.className = 'status-indicator status-active';
+                statusText.textContent = '再生中';
+                deviceActive = true;
+            } else {
+                statusIndicator.className = 'status-indicator status-paused';
+                statusText.textContent = '一時停止中';
+                deviceActive = true;
+            }
+        }
+
+        // トラック情報を表示する
+        function displayTrackInfo(trackData) {
+            if (!trackData) return;
+            
+            const trackName = trackData.name || '不明な曲';
+            const artistName = trackData.artists ? trackData.artists.map(artist => artist.name).join(', ') : '不明なアーティスト';
+            
+            document.getElementById('nowPlaying').innerHTML = `再生中の曲: ${trackName}`;
+            document.getElementById('trackInfo').textContent = `アーティスト: ${artistName}`;
+            
+            // 最後に再生していた曲の情報を保存
+            saveLastTrackInfo({
+                name: trackName,
+                artists: trackData.artists || [],
+                id: trackData.id
+            });
+        }
+
         window.onload = async () => {
             // URLハッシュからトークンとセッションIDを取得
             const params = getHashParams();
@@ -242,9 +322,19 @@
                 sessionId = session.sessionId;
             }
             
+            // 最後に再生していた曲の情報を取得
+            lastTrackInfo = getLastTrackInfo();
+            
             if (accessToken && sessionId) {
                 document.getElementById('loginSection').style.display = 'none';
                 document.getElementById('controlSection').style.display = 'block';
+                
+                // 最後に再生していた曲の情報があれば表示
+                if (lastTrackInfo) {
+                    displayTrackInfo(lastTrackInfo);
+                    updateStatusDisplay(false, false);
+                }
+                
                 updatePlaybackState();
                 // 定期的に再生状態を更新
                 updateInterval = setInterval(updatePlaybackState, 1000);
@@ -299,10 +389,8 @@
                     // 正常に再生情報を取得できた場合
                     hideError();
                     isPlaying = data.is_playing;
-                    const trackName = data.item.name;
-                    const artistName = data.item.artists.map(artist => artist.name).join(', ');
-                    document.getElementById('nowPlaying').innerHTML = `再生中の曲: ${trackName}`;
-                    document.getElementById('trackInfo').textContent = `アーティスト: ${artistName}`;
+                    displayTrackInfo(data.item);
+                    updateStatusDisplay(true, isPlaying);
                     document.getElementById('playPauseButton').textContent = isPlaying ? '⏸' : '▶';
                 } else if (data && data.error) {
                     // エラーがある場合
@@ -310,6 +398,11 @@
                     console.error('Playback error:', data.error);
                     
                     if (data.error.includes('No active device found')) {
+                        // アクティブなデバイスがない場合でも、最後に再生していた曲の情報を表示
+                        updateStatusDisplay(false, false);
+                        if (lastTrackInfo) {
+                            displayTrackInfo(lastTrackInfo);
+                        }
                         showError('アクティブなデバイスが見つかりません。Spotifyアプリで再生を開始してください。');
                     } else if (data.error.includes('No valid access token') || data.error.includes('token') || data.error.includes('unauthorized') || data.error.includes('Invalid or expired session')) {
                         const refreshed = await handleAuthError();
@@ -346,6 +439,11 @@
                 return;
             }
             
+            if (!deviceActive) {
+                showError('アクティブなデバイスがありません。Spotifyアプリで再生を開始してください。');
+                return;
+            }
+            
             try {
                 const response = await fetch(`/seek?session_id=${sessionId}&position=${position}`);
                 const data = await response.json();
@@ -362,6 +460,8 @@
                                 // トークンが更新されたら再試行
                                 seekPosition(position);
                             }
+                        } else if (data.error.includes('NO_ACTIVE_DEVICE')) {
+                            showError('アクティブなデバイスがありません。Spotifyアプリで再生を開始してください。');
                         } else {
                             showError('シーク失敗: ' + data.error);
                         }
@@ -380,6 +480,11 @@
                 return;
             }
             
+            if (!deviceActive && !isPlaying) {
+                showError('アクティブなデバイスがありません。Spotifyアプリで再生を開始してください。');
+                return;
+            }
+            
             const endpoint = isPlaying ? '/pause' : '/play';
             try {
                 const response = await fetch(`${endpoint}?session_id=${sessionId}`);
@@ -388,6 +493,7 @@
                 if (data.success) {
                     isPlaying = !isPlaying;
                     document.getElementById('playPauseButton').textContent = isPlaying ? '⏸' : '▶';
+                    updateStatusDisplay(true, isPlaying);
                     hideError();
                 } else {
                     console.error('Playback toggle failed:', data);
@@ -398,6 +504,8 @@
                                 // トークンが更新されたら再試行
                                 togglePlayPause();
                             }
+                        } else if (data.error.includes('NO_ACTIVE_DEVICE')) {
+                            showError('アクティブなデバイスがありません。Spotifyアプリで再生を開始してください。');
                         } else {
                             showError('再生/一時停止の切り替えに失敗しました: ' + data.error);
                         }
@@ -416,6 +524,11 @@
                 return;
             }
             
+            if (!deviceActive) {
+                showError('アクティブなデバイスがありません。Spotifyアプリで再生を開始してください。');
+                return;
+            }
+            
             try {
                 const response = await fetch(`/current-playback?session_id=${sessionId}`);
                 const data = await response.json();
@@ -427,6 +540,8 @@
                     if (data.error.includes('token') || data.error.includes('unauthorized') || data.error.includes('Invalid or expired session')) {
                         const refreshed = await handleAuthError();
                         if (!refreshed) return;
+                    } else if (data.error.includes('No active device')) {
+                        showError('アクティブなデバイスがありません。Spotifyアプリで再生を開始してください。');
                     } else {
                         showError('現在の再生位置を取得できません: ' + data.error);
                     }
@@ -443,6 +558,11 @@
                 return;
             }
             
+            if (!deviceActive) {
+                showError('アクティブなデバイスがありません。Spotifyアプリで再生を開始してください。');
+                return;
+            }
+            
             try {
                 const response = await fetch(`/current-playback?session_id=${sessionId}`);
                 const data = await response.json();
@@ -453,6 +573,8 @@
                     if (data.error.includes('token') || data.error.includes('unauthorized') || data.error.includes('Invalid or expired session')) {
                         const refreshed = await handleAuthError();
                         if (!refreshed) return;
+                    } else if (data.error.includes('No active device')) {
+                        showError('アクティブなデバイスがありません。Spotifyアプリで再生を開始してください。');
                     } else {
                         showError('現在の再生位置を取得できません: ' + data.error);
                     }
