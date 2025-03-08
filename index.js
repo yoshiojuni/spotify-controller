@@ -141,28 +141,28 @@ app.get('/lyrics', async (req, res) => {
     const track = playbackResponse.data.item;
     const trackName = track.name;
     const artistName = track.artists[0].name;
+    const progressMs = playbackResponse.data.progress_ms || 0;
     
     // 歌詞を検索するクエリを作成
     const searchQuery = `${trackName} ${artistName} lyrics`;
     console.log('歌詞検索クエリ:', searchQuery);
+    console.log('現在の再生位置:', progressMs, 'ms');
     
     try {
-      // 歌詞検索API（例: Genius APIなど）を使用して歌詞を取得
-      // 注: 実際の実装では、適切なAPIキーと認証が必要です
-      
-      // この例では、簡易的な実装として、曲名とアーティスト名から歌詞を検索する方法を示します
-      // 実際のプロダクションでは、Genius API、Musixmatch API、または他の歌詞提供サービスを使用することをお勧めします
-      
-      // 歌詞APIのモックレスポンス（実際の実装では、実際のAPIリクエストに置き換えてください）
-      const mockLyrics = generateMockLyrics(trackName, artistName);
+      // タイムスタンプ付きの歌詞データを生成（実際のAPIでは置き換える）
+      const syncedLyrics = generateSyncedLyrics(trackName, artistName, track.duration_ms);
       
       return res.json({ 
-        lyrics: mockLyrics,
+        lyrics: syncedLyrics,
+        currentTime: progressMs,
+        fetchTime: Date.now(),  // 現在時刻を追加
         track: {
           name: trackName,
           artist: artistName,
-          album: track.album.name
-        }
+          album: track.album.name,
+          duration: track.duration_ms
+        },
+        provider: "プチリリ（モック）"
       });
     } catch (lyricsError) {
       console.log('歌詞取得エラー:', lyricsError.message);
@@ -186,25 +186,68 @@ app.get('/lyrics', async (req, res) => {
   }
 });
 
-// モック歌詞生成関数（実際の実装では、実際のAPIリクエストに置き換えてください）
-function generateMockLyrics(trackName, artistName) {
-  // この関数は、実際の歌詞APIが実装されるまでのプレースホルダーです
-  return [
-    { words: `${trackName} - ${artistName}` },
-    { words: "（この歌詞はモックデータです）" },
-    { words: "" },
-    { words: "実際の歌詞を表示するには、歌詞APIを実装する必要があります。" },
-    { words: "例えば、以下のAPIを検討してください：" },
-    { words: "- Genius API (https://docs.genius.com/)" },
-    { words: "- Musixmatch API (https://developer.musixmatch.com/)" },
-    { words: "- Lyrics.ovh API (https://lyricsovh.docs.apiary.io/)" },
-    { words: "" },
-    { words: "これらのAPIを使用するには、APIキーの取得と適切な認証が必要です。" },
-    { words: "" },
-    { words: "現在再生中の曲:" },
-    { words: `タイトル: ${trackName}` },
-    { words: `アーティスト: ${artistName}` }
+// タイムスタンプ付きの歌詞データを生成する関数
+function generateSyncedLyrics(trackName, artistName, duration) {
+  // 曲の長さに基づいて、適切な数の歌詞行を生成
+  const numberOfLines = Math.floor(duration / 10000) + 10; // 約10秒ごとに1行
+  const lines = [];
+  
+  // 歌詞の冒頭部分
+  lines.push({
+    startTimeMs: 0,
+    words: `${trackName} - ${artistName}`,
+    endTimeMs: 3000
+  });
+  
+  lines.push({
+    startTimeMs: 3000,
+    words: "（この歌詞はモックデータです）",
+    endTimeMs: 6000
+  });
+  
+  lines.push({
+    startTimeMs: 6000,
+    words: "",
+    endTimeMs: 8000
+  });
+  
+  // 残りの歌詞行を生成
+  const lyricsPool = [
+    "♪ 歌詞の例文です",
+    "♪ Spotifyで音楽を楽しみましょう",
+    "♪ この歌詞はモックデータです",
+    "♪ 実際の歌詞ではありません",
+    "♪ カラオケのように表示されます",
+    "♪ 現在の再生位置に合わせて",
+    "♪ 歌詞がハイライトされます",
+    "♪ プチリリのような表示を再現",
+    "♪ 音楽を楽しみながら歌詞も楽しめます",
+    "♪ 好きな曲を見つけましょう",
+    "♪ 音楽の世界は広がります",
+    "♪ リズムに乗って歌いましょう",
+    "♪ メロディーに合わせて",
+    "♪ 歌詞を追いかけましょう",
+    "♪ 音楽は心を豊かにします"
   ];
+  
+  let currentTime = 8000;
+  const lineInterval = Math.floor((duration - currentTime) / (numberOfLines - 3));
+  
+  for (let i = 0; i < numberOfLines - 3; i++) {
+    const lyricIndex = i % lyricsPool.length;
+    const startTime = currentTime;
+    const endTime = currentTime + lineInterval;
+    
+    lines.push({
+      startTimeMs: startTime,
+      words: lyricsPool[lyricIndex],
+      endTimeMs: endTime
+    });
+    
+    currentTime = endTime;
+  }
+  
+  return lines;
 }
 
 // 音楽キーを取得する補助関数

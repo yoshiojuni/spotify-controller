@@ -73,11 +73,42 @@
             margin-bottom: 8px;
             font-size: 16px;
             line-height: 1.5;
+            padding: 5px;
+            border-radius: 4px;
+            transition: background-color 0.3s ease;
+        }
+        .lyrics-line.active {
+            background-color: #1DB954;
+            color: white;
+            font-weight: bold;
+        }
+        .lyrics-line.past {
+            color: #888;
         }
         .lyrics-title {
             font-weight: bold;
             margin-bottom: 10px;
             font-size: 18px;
+        }
+        .lyrics-provider {
+            font-size: 12px;
+            color: #888;
+            margin-top: 5px;
+            margin-bottom: 15px;
+            text-align: right;
+        }
+        .lyrics-progress {
+            height: 4px;
+            background-color: #ddd;
+            border-radius: 2px;
+            margin-bottom: 15px;
+            overflow: hidden;
+        }
+        .lyrics-progress-bar {
+            height: 100%;
+            background-color: #1DB954;
+            width: 0%;
+            transition: width 1s linear;
         }
         .tab-buttons {
             display: flex;
@@ -170,6 +201,10 @@
             <div id="lyricsTab" class="tab-content" style="display: none;">
                 <div id="lyricsContainer">
                     <div class="lyrics-title">歌詞</div>
+                    <div class="lyrics-provider" id="lyricsProvider">歌詞提供: 取得中...</div>
+                    <div class="lyrics-progress">
+                        <div class="lyrics-progress-bar" id="lyricsProgressBar"></div>
+                    </div>
                     <div id="lyrics">歌詞を取得中...</div>
                 </div>
             </div>
@@ -192,6 +227,8 @@
 
         let accessToken = null;
         let currentTab = 'controls';
+        let lyricsData = null;
+        let lyricsUpdateInterval = null;
 
         function formatTime(ms) {
             const seconds = Math.floor(ms / 1000);
@@ -227,6 +264,16 @@
             if (tabName === 'lyrics') {
                 document.getElementById('lyricsContainer').style.display = 'block';
                 fetchLyrics();
+                
+                // 歌詞タブが表示されている間は定期的に更新
+                if (lyricsUpdateInterval) clearInterval(lyricsUpdateInterval);
+                lyricsUpdateInterval = setInterval(updateLyricsHighlight, 1000);
+            } else {
+                // 歌詞タブが非表示の場合は更新を停止
+                if (lyricsUpdateInterval) {
+                    clearInterval(lyricsUpdateInterval);
+                    lyricsUpdateInterval = null;
+                }
             }
         }
 
@@ -278,15 +325,89 @@
                         errorMessage += `\n\n曲情報:\n${data.track.name} - ${data.track.artist}\nアルバム: ${data.track.album}`;
                     }
                     document.getElementById('lyrics').innerText = errorMessage;
+                    document.getElementById('lyricsProvider').innerText = '';
                 } else if (data.lyrics) {
-                    const lyricsHtml = data.lyrics.map(line => 
-                        `<div class="lyrics-line">${line.words}</div>`
-                    ).join('');
-                    document.getElementById('lyrics').innerHTML = lyricsHtml;
+                    // 歌詞データを保存
+                    lyricsData = data;
+                    
+                    // 歌詞提供元を表示
+                    document.getElementById('lyricsProvider').innerText = `歌詞提供: ${data.provider || '不明'}`;
+                    
+                    // 歌詞を表示
+                    renderLyrics(data.lyrics, data.currentTime);
+                    
+                    // プログレスバーを更新
+                    updateProgressBar(data.currentTime, data.track.duration);
                 }
             } catch (error) {
                 document.getElementById('lyrics').innerText = 'エラーが発生しました: ' + error;
+                document.getElementById('lyricsProvider').innerText = '';
             }
+        }
+
+        function renderLyrics(lyrics, currentTime) {
+            const lyricsHtml = lyrics.map((line, index) => 
+                `<div class="lyrics-line" data-start="${line.startTimeMs}" data-end="${line.endTimeMs}" id="lyric-line-${index}">${line.words}</div>`
+            ).join('');
+            
+            document.getElementById('lyrics').innerHTML = lyricsHtml;
+            
+            // 現在の再生位置に合わせてハイライト
+            updateLyricsHighlight(currentTime);
+        }
+        
+        function updateLyricsHighlight(forcedTime) {
+            if (!lyricsData || !lyricsData.lyrics) return;
+            
+            // 現在の再生位置を推定（前回の取得時間 + 経過時間）
+            const now = Date.now();
+            const fetchTime = lyricsData.fetchTime || now;
+            const elapsedSinceUpdate = now - fetchTime;
+            
+            // 強制的に指定された時間があればそれを使用、なければ推定時間
+            const currentTime = forcedTime !== undefined ? 
+                forcedTime : 
+                (lyricsData.currentTime + elapsedSinceUpdate);
+            
+            // プログレスバーを更新
+            updateProgressBar(currentTime, lyricsData.track.duration);
+            
+            // 各歌詞行のクラスを更新
+            const lines = document.querySelectorAll('.lyrics-line');
+            let activeLineFound = false;
+            let activeLineElement = null;
+            
+            lines.forEach(line => {
+                const startTime = parseInt(line.dataset.start);
+                const endTime = parseInt(line.dataset.end);
+                
+                line.classList.remove('active', 'past');
+                
+                if (currentTime >= startTime && currentTime < endTime) {
+                    line.classList.add('active');
+                    activeLineFound = true;
+                    activeLineElement = line;
+                } else if (currentTime >= endTime) {
+                    line.classList.add('past');
+                }
+            });
+            
+            // アクティブな行が見つかった場合、その行にスクロール
+            if (activeLineElement && activeLineFound) {
+                const container = document.getElementById('lyricsContainer');
+                const lineTop = activeLineElement.offsetTop;
+                const containerHeight = container.clientHeight;
+                
+                // コンテナの中央に表示されるようにスクロール
+                container.scrollTop = lineTop - (containerHeight / 2) + (activeLineElement.clientHeight / 2);
+            }
+        }
+        
+        function updateProgressBar(currentTime, duration) {
+            if (!duration) return;
+            
+            const progressPercent = (currentTime / duration) * 100;
+            document.getElementById('lyricsProgressBar').style.width = `${progressPercent}%`;
         }
 
         async function seek(shift) {
