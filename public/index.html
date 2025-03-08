@@ -35,17 +35,24 @@
             font-size: 16px;
             -webkit-tap-highlight-color: transparent;
             touch-action: manipulation;
+            text-decoration: none;
+            display: inline-block;
+            text-align: center;
         }
         .button:active {
             background-color: #1ed760;
             transform: scale(0.98);
         }
-        #nowPlaying, #trackInfo {
+        #nowPlaying, #trackInfo, #errorMessage {
             margin: 20px 0;
             padding: 15px;
             background-color: #3E3E3E;
             border-radius: 8px;
             font-size: 16px;
+        }
+        #errorMessage {
+            background-color: #5E3E3E;
+            display: none;
         }
         .controls {
             display: flex;
@@ -85,6 +92,19 @@
         #seekForward {
             background-color: #535353;
         }
+        .help-text {
+            margin-top: 20px;
+            font-size: 14px;
+            color: #b3b3b3;
+            line-height: 1.5;
+        }
+        .spotify-link {
+            color: #1DB954;
+            text-decoration: none;
+        }
+        .spotify-link:hover {
+            text-decoration: underline;
+        }
         @media (max-width: 480px) {
             body {
                 padding: 10px;
@@ -107,11 +127,17 @@
         <div id="controlSection" style="display: none;">
             <div id="nowPlaying">再生中の曲: 取得中...</div>
             <div id="trackInfo">アーティスト: 取得中...</div>
+            <div id="errorMessage"></div>
             
             <div class="controls">
                 <button id="seekBackward" class="control-button">-5秒</button>
                 <button id="playPauseButton" class="control-button">▶</button>
                 <button id="seekForward" class="control-button">+5秒</button>
+            </div>
+            
+            <div class="help-text">
+                <p>※ このコントローラーを使用するには、Spotifyアプリで再生を開始してください。</p>
+                <p><a href="https://open.spotify.com" class="spotify-link" target="_blank">Spotify Web Playerを開く</a></p>
             </div>
         </div>
     </div>
@@ -120,6 +146,7 @@
         let accessToken = null;
         let isPlaying = false;
         let updateInterval = null;
+        let errorCount = 0;
 
         // ハッシュパラメータからアクセストークンを取得
         function getHashParams() {
@@ -158,9 +185,23 @@
                     })
                     .catch(error => {
                         console.error('Error fetching token:', error);
+                        showError('トークンの取得に失敗しました。再度ログインしてください。');
                     });
             }
         };
+
+        // エラーメッセージを表示する関数
+        function showError(message) {
+            const errorElement = document.getElementById('errorMessage');
+            errorElement.textContent = message;
+            errorElement.style.display = 'block';
+        }
+
+        // エラーメッセージを非表示にする関数
+        function hideError() {
+            document.getElementById('errorMessage').style.display = 'none';
+            errorCount = 0;
+        }
 
         // 再生状態を更新する関数
         function updatePlaybackState() {
@@ -168,6 +209,8 @@
                 .then(response => response.json())
                 .then(data => {
                     if (data && data.item) {
+                        // 正常に再生情報を取得できた場合
+                        hideError();
                         isPlaying = data.is_playing;
                         const trackName = data.item.name;
                         const artistName = data.item.artists.map(artist => artist.name).join(', ');
@@ -175,19 +218,40 @@
                         document.getElementById('trackInfo').textContent = `アーティスト: ${artistName}`;
                         document.getElementById('playPauseButton').textContent = isPlaying ? '⏸' : '▶';
                     } else if (data && data.error) {
-                        document.getElementById('nowPlaying').textContent = `エラー: ${data.error}`;
-                        if (data.error.includes('No access token')) {
+                        // エラーがある場合
+                        errorCount++;
+                        console.error('Playback error:', data.error);
+                        
+                        if (data.error.includes('No active device found')) {
+                            showError('アクティブなデバイスが見つかりません。Spotifyアプリで再生を開始してください。');
+                        } else if (data.error.includes('No access token') || data.error.includes('token')) {
+                            showError('認証エラー: ' + data.error);
                             document.getElementById('loginSection').style.display = 'block';
                             document.getElementById('controlSection').style.display = 'none';
                             if (updateInterval) {
                                 clearInterval(updateInterval);
                             }
+                        } else {
+                            showError('エラー: ' + data.error);
+                        }
+                        
+                        // エラーが続く場合は更新間隔を長くする
+                        if (errorCount > 5 && updateInterval) {
+                            clearInterval(updateInterval);
+                            updateInterval = setInterval(updatePlaybackState, 5000);
                         }
                     }
                 })
                 .catch(error => {
                     console.error('Error updating playback state:', error);
-                    document.getElementById('nowPlaying').textContent = `エラー: ${error.message}`;
+                    showError('再生状態の取得に失敗しました: ' + error.message);
+                    errorCount++;
+                    
+                    // エラーが続く場合は更新間隔を長くする
+                    if (errorCount > 5 && updateInterval) {
+                        clearInterval(updateInterval);
+                        updateInterval = setInterval(updatePlaybackState, 5000);
+                    }
                 });
         }
 
@@ -198,11 +262,18 @@
                 .then(data => {
                     if (data.success) {
                         updatePlaybackState();
+                        hideError();
                     } else {
                         console.error('Seek failed:', data);
+                        if (data.error) {
+                            showError('シーク失敗: ' + data.error);
+                        }
                     }
                 })
-                .catch(error => console.error('Error seeking position:', error));
+                .catch(error => {
+                    console.error('Error seeking position:', error);
+                    showError('シーク中にエラーが発生しました: ' + error.message);
+                });
         }
 
         // 再生/一時停止を切り替える関数
@@ -214,9 +285,18 @@
                     if (data.success) {
                         isPlaying = !isPlaying;
                         document.getElementById('playPauseButton').textContent = isPlaying ? '⏸' : '▶';
+                        hideError();
+                    } else {
+                        console.error('Playback toggle failed:', data);
+                        if (data.error) {
+                            showError('再生/一時停止の切り替えに失敗しました: ' + data.error);
+                        }
                     }
                 })
-                .catch(error => console.error('Error toggling playback:', error));
+                .catch(error => {
+                    console.error('Error toggling playback:', error);
+                    showError('再生/一時停止の切り替え中にエラーが発生しました: ' + error.message);
+                });
         }
 
         // イベントリスナーの設定
@@ -227,7 +307,13 @@
                     if (data && data.progress_ms !== undefined) {
                         const newPosition = Math.max(0, data.progress_ms - 5000);
                         seekPosition(newPosition);
+                    } else if (data && data.error) {
+                        showError('現在の再生位置を取得できません: ' + data.error);
                     }
+                })
+                .catch(error => {
+                    console.error('Error getting current position:', error);
+                    showError('現在の再生位置の取得中にエラーが発生しました: ' + error.message);
                 });
         });
 
@@ -237,7 +323,13 @@
                 .then(data => {
                     if (data && data.progress_ms !== undefined) {
                         seekPosition(data.progress_ms + 5000);
+                    } else if (data && data.error) {
+                        showError('現在の再生位置を取得できません: ' + data.error);
                     }
+                })
+                .catch(error => {
+                    console.error('Error getting current position:', error);
+                    showError('現在の再生位置の取得中にエラーが発生しました: ' + error.message);
                 });
         });
 
