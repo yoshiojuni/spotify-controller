@@ -257,7 +257,6 @@
             
             <div class="footer">
                 <span class="logout-link" id="logoutButton">ログアウト</span>
-                <span class="version-info" id="versionInfo">v1.3.0</span>
             </div>
         </div>
     </div>
@@ -529,8 +528,8 @@
         }
 
         window.onload = async () => {
-            // バージョン情報を表示
-            document.getElementById('versionInfo').textContent = 'v1.3.0 (' + new Date().toISOString().split('T')[0] + ')';
+            // バージョン情報を表示（古いコードを削除）
+            // document.getElementById('versionInfo').textContent = 'v1.3.0 (' + new Date().toISOString().split('T')[0] + ')';
             
             // ログインボタンのイベントリスナーを設定
             document.getElementById('loginButton').addEventListener('click', function(e) {
