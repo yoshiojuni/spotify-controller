@@ -95,6 +95,34 @@
             background-color: #1DB954;
             color: white;
         }
+        .info-section {
+            margin-bottom: 20px;
+            padding: 15px;
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        .info-section h3 {
+            margin-top: 0;
+            margin-bottom: 10px;
+            color: #1DB954;
+            font-size: 18px;
+        }
+        .info-section p {
+            margin: 5px 0;
+            line-height: 1.5;
+        }
+        .info-section a {
+            color: #1DB954;
+            text-decoration: none;
+        }
+        .info-section a:hover {
+            text-decoration: underline;
+        }
+        audio {
+            width: 100%;
+            margin-top: 5px;
+        }
         @media (max-width: 480px) {
             body {
                 padding: 10px;
@@ -126,7 +154,7 @@
             
             <div class="tab-buttons">
                 <button class="tab-button active" onclick="showTab('controls')">コントロール</button>
-                <button class="tab-button" onclick="showTab('lyrics')">歌詞</button>
+                <button class="tab-button" onclick="showTab('lyrics')">曲の詳細</button>
             </div>
             
             <div id="controlsTab" class="tab-content">
@@ -141,8 +169,8 @@
             
             <div id="lyricsTab" class="tab-content" style="display: none;">
                 <div id="lyricsContainer">
-                    <div class="lyrics-title">歌詞</div>
-                    <div id="lyrics">歌詞を取得中...</div>
+                    <div class="lyrics-title">曲の詳細情報</div>
+                    <div id="lyrics">情報を取得中...</div>
                 </div>
             </div>
         </div>
@@ -229,7 +257,8 @@
         async function fetchLyrics() {
             if (!accessToken) return;
             
-            document.getElementById('lyrics').innerText = '歌詞を取得中...';
+            document.getElementById('lyrics').innerText = '情報を取得中...';
+            document.getElementById('lyricsContainer').style.display = 'block';
             
             try {
                 const response = await fetch(`/lyrics?token=${accessToken}`);
@@ -249,7 +278,53 @@
                         errorMessage += `\n\n曲情報:\n${data.track.name} - ${data.track.artist}\nアルバム: ${data.track.album}`;
                     }
                     document.getElementById('lyrics').innerText = errorMessage;
+                } else if (data.info) {
+                    // 曲の詳細情報を表示
+                    const trackInfo = data.info.trackInfo;
+                    const artistInfo = data.info.artistInfo;
+                    const audioFeatures = data.info.audioFeatures;
+                    
+                    let html = `
+                        <div class="info-section">
+                            <h3>曲の情報</h3>
+                            <p><strong>タイトル:</strong> ${trackInfo.name}</p>
+                            <p><strong>アーティスト:</strong> ${trackInfo.artist}</p>
+                            <p><strong>アルバム:</strong> ${trackInfo.album}</p>
+                            <p><strong>リリース日:</strong> ${trackInfo.releaseDate}</p>
+                            <p><strong>再生時間:</strong> ${Math.floor(trackInfo.duration / 60)}分${trackInfo.duration % 60}秒</p>
+                            <p><strong>人気度:</strong> ${trackInfo.popularity}/100</p>
+                            <p><strong>露骨な表現:</strong> ${trackInfo.explicit}</p>
+                        </div>
+                        
+                        <div class="info-section">
+                            <h3>アーティスト情報</h3>
+                            <p><strong>名前:</strong> ${artistInfo.name}</p>
+                            <p><strong>ジャンル:</strong> ${artistInfo.genres}</p>
+                            <p><strong>フォロワー数:</strong> ${artistInfo.followers}</p>
+                            <p><strong>人気度:</strong> ${artistInfo.popularity}/100</p>
+                        </div>
+                        
+                        <div class="info-section">
+                            <h3>音楽的特徴</h3>
+                            <p><strong>ダンス性:</strong> ${audioFeatures.danceability}</p>
+                            <p><strong>エネルギー:</strong> ${audioFeatures.energy}</p>
+                            <p><strong>キー:</strong> ${audioFeatures.key}</p>
+                            <p><strong>テンポ:</strong> ${audioFeatures.tempo}</p>
+                            <p><strong>ポジティブ度:</strong> ${audioFeatures.valence}</p>
+                        </div>
+                        
+                        <div class="info-section">
+                            <h3>リンク</h3>
+                            <p><a href="${trackInfo.spotifyUrl}" target="_blank">Spotifyで開く</a></p>
+                            ${trackInfo.previewUrl !== 'プレビューなし' ? 
+                                `<p><audio controls src="${trackInfo.previewUrl}"></audio></p>` : 
+                                '<p>プレビュー音声はありません</p>'}
+                        </div>
+                    `;
+                    
+                    document.getElementById('lyrics').innerHTML = html;
                 } else if (data.lyrics) {
+                    // 万が一歌詞が取得できた場合の処理（将来的な拡張用）
                     const lyricsHtml = data.lyrics.map(line => 
                         `<div class="lyrics-line">${line.words}</div>`
                     ).join('');

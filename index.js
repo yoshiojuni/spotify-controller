@@ -138,33 +138,63 @@ app.get('/lyrics', async (req, res) => {
       return res.json({ error: '現在再生中の曲がありません。' });
     }
     
-    const trackId = playbackResponse.data.item.id;
+    const track = playbackResponse.data.item;
+    const trackName = track.name;
+    const artistName = track.artists[0].name;
     
-    // 歌詞情報を取得（Spotify APIの新機能）
-    try {
-      const lyricsResponse = await axios.get(`https://api.spotify.com/v1/tracks/${trackId}/lyrics`, {
-        headers: { 'Authorization': 'Bearer ' + token }
-      });
-      
-      if (lyricsResponse.data && lyricsResponse.data.lyrics) {
-        return res.json({ lyrics: lyricsResponse.data.lyrics.lines });
-      } else {
-        return res.json({ error: 'この曲の歌詞情報は利用できません。' });
+    // 注: Spotify APIには直接歌詞を取得するエンドポイントがありません
+    // 以下は曲の詳細情報を返します
+    
+    // 曲の詳細情報を取得
+    const trackResponse = await axios.get(`https://api.spotify.com/v1/tracks/${track.id}`, {
+      headers: { 'Authorization': 'Bearer ' + token }
+    });
+    
+    // アーティスト情報を取得
+    const artistResponse = await axios.get(`https://api.spotify.com/v1/artists/${track.artists[0].id}`, {
+      headers: { 'Authorization': 'Bearer ' + token }
+    });
+    
+    // 曲の特徴情報を取得
+    const featuresResponse = await axios.get(`https://api.spotify.com/v1/audio-features/${track.id}`, {
+      headers: { 'Authorization': 'Bearer ' + token }
+    });
+    
+    // 曲の詳細情報を返す
+    return res.json({
+      info: {
+        trackInfo: {
+          name: trackName,
+          artist: artistName,
+          album: track.album.name,
+          releaseDate: track.album.release_date,
+          duration: Math.floor(track.duration_ms / 1000),
+          popularity: trackResponse.data.popularity,
+          explicit: track.explicit ? 'あり' : 'なし',
+          previewUrl: track.preview_url || 'プレビューなし',
+          spotifyUrl: track.external_urls.spotify
+        },
+        artistInfo: {
+          name: artistName,
+          genres: artistResponse.data.genres.join(', ') || 'ジャンル情報なし',
+          followers: artistResponse.data.followers.total.toLocaleString(),
+          popularity: artistResponse.data.popularity
+        },
+        audioFeatures: featuresResponse.data ? {
+          danceability: (featuresResponse.data.danceability * 100).toFixed(0) + '%',
+          energy: (featuresResponse.data.energy * 100).toFixed(0) + '%',
+          key: getKeyName(featuresResponse.data.key, featuresResponse.data.mode),
+          tempo: featuresResponse.data.tempo.toFixed(0) + ' BPM',
+          valence: (featuresResponse.data.valence * 100).toFixed(0) + '%' // ポジティブ度
+        } : '特徴情報なし'
+      },
+      message: '歌詞情報は利用できませんが、曲の詳細情報を表示しています。',
+      track: {
+        name: trackName,
+        artist: artistName,
+        album: track.album.name
       }
-    } catch (lyricsError) {
-      console.log('歌詞取得エラー:', lyricsError.message);
-      
-      // 曲の基本情報を返す（歌詞が取得できない場合）
-      const track = playbackResponse.data.item;
-      return res.json({ 
-        error: 'この曲の歌詞情報は利用できません。',
-        track: {
-          name: track.name,
-          artist: track.artists.map(a => a.name).join(', '),
-          album: track.album.name
-        }
-      });
-    }
+    });
   } catch (error) {
     console.error('エラー:', error.message);
     if (error.response && error.response.status === 401) {
@@ -174,6 +204,15 @@ app.get('/lyrics', async (req, res) => {
     }
   }
 });
+
+// 音楽キーを取得する補助関数
+function getKeyName(key, mode) {
+  const keys = ['C', 'C♯/D♭', 'D', 'D♯/E♭', 'E', 'F', 'F♯/G♭', 'G', 'G♯/A♭', 'A', 'A♯/B♭', 'B'];
+  const modes = ['minor', 'major'];
+  
+  if (key === -1) return '不明';
+  return keys[key] + ' ' + modes[mode];
+}
 
 // デバッグ用のルート
 app.get('/debug', (req, res) => {
