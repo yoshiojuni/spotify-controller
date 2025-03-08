@@ -41,6 +41,7 @@
             text-decoration: none;
             display: inline-block;
             text-align: center;
+            transition: transform 0.1s ease, background-color 0.2s ease, opacity 0.2s ease;
         }
         .button:active {
             background-color: #1ed760;
@@ -185,6 +186,41 @@
                 padding: 12px 20px;
             }
         }
+        #trackInfo {
+            margin-top: 20px;
+            text-align: center;
+        }
+        #albumArt {
+            width: 200px;
+            height: 200px;
+            object-fit: cover;
+            border-radius: 8px;
+            margin-bottom: 10px;
+        }
+        #trackName {
+            font-size: 18px;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+        #artistName {
+            font-size: 16px;
+            color: #b3b3b3;
+            margin-bottom: 5px;
+        }
+        #progressDisplay {
+            font-size: 14px;
+            color: #b3b3b3;
+            margin-top: 5px;
+            margin-bottom: 15px;
+        }
+        #errorMessage {
+            color: #ff5252;
+            background-color: rgba(255, 82, 82, 0.1);
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+            display: none;
+        }
     </style>
 </head>
 <body>
@@ -199,7 +235,13 @@
                 <span id="statusText">接続中...</span>
             </div>
             <div id="nowPlaying">再生中の曲: 取得中... <span class="loading"></span></div>
-            <div id="trackInfo">アーティスト: 取得中...</div>
+            <div id="trackInfo" style="display: none;">
+                <img id="albumArt" src="" alt="Album Art" style="display: none;">
+                <div id="trackName"></div>
+                <div id="artistName"></div>
+                <div id="progressDisplay">--:-- / --:--</div>
+                <div id="playbackStatus" style="display: none;"></div>
+            </div>
             <div id="errorMessage"></div>
             
             <div class="controls">
@@ -637,53 +679,70 @@
         // 再生状態を更新する関数
         async function updatePlaybackState() {
             if (!sessionId) {
-                // セッションがない場合は自動ログイン
-                const redirectAfterLogin = localStorage.getItem('spotify_redirect_after_login');
-                if (redirectAfterLogin) {
-                    showError('セッションが無効です。自動的に再ログインします...');
-                    
-                    // 自動再ログイン
-                    autoRelogin();
-                    return;
-                } else {
-                    showError('セッションが無効です。ログインしてください。');
-                    document.getElementById('loginSection').style.display = 'block';
-                    document.getElementById('controlSection').style.display = 'none';
-                    return;
-                }
+                return;
             }
             
             try {
                 const response = await fetch(`/current-playback?session_id=${sessionId}`);
-                const data = await response.json();
-
-                if (data && data.item) {
-                    // 正常に再生情報を取得できた場合
-                    hideError();
-                    isPlaying = data.is_playing;
-                    displayTrackInfo(data.item);
-                    updateStatusDisplay(true, isPlaying);
-                    document.getElementById('playPauseButton').textContent = isPlaying ? '⏸' : '▶';
-                } else if (data && data.error) {
-                    // エラーがある場合
-                    errorCount++;
-                    console.error('Playback error:', data.error);
-                    
-                    if (data.error.includes('No active device found')) {
-                        // アクティブなデバイスがない場合でも、最後に再生していた曲の情報を表示
-                        updateStatusDisplay(false, false);
-                        if (lastTrackInfo) {
-                            displayTrackInfo(lastTrackInfo);
-                        }
-                        showError('アクティブなデバイスが見つかりません。Spotifyアプリで再生を開始してください。');
-                    } else if (data.error.includes('No valid access token') || data.error.includes('token') || data.error.includes('unauthorized') || data.error.includes('Invalid or expired session')) {
-                        const refreshed = await handleAuthError();
-                        if (!refreshed) {
-                            return;
-                        }
+                
+                if (!response.ok) {
+                    if (response.status === 401 || response.status === 403) {
+                        await handleAuthError();
                     } else {
-                        showError('エラー: ' + data.error);
+                        throw new Error(`HTTP error! status: ${response.status}`);
                     }
+                    return;
+                }
+                
+                const data = await response.json();
+                lastTrackInfo = data;
+                
+                if (data && data.item) {
+                    // 再生中のトラック情報を表示
+                    document.getElementById('trackInfo').style.display = 'block';
+                    document.getElementById('trackName').textContent = data.item.name;
+                    document.getElementById('artistName').textContent = data.item.artists.map(artist => artist.name).join(', ');
+                    
+                    // アルバムアートを表示
+                    if (data.item.album && data.item.album.images && data.item.album.images.length > 0) {
+                        document.getElementById('albumArt').src = data.item.album.images[0].url;
+                        document.getElementById('albumArt').style.display = 'block';
+                    } else {
+                        document.getElementById('albumArt').style.display = 'none';
+                    }
+                    
+                    // 再生状態を更新
+                    isPlaying = data.is_playing;
+                    deviceActive = true;
+                    updatePlayPauseButton(isPlaying);
+                    
+                    // 再生位置を更新
+                    updateProgressDisplay(data.progress_ms, data.item.duration_ms);
+                    
+                    // エラーカウントをリセット
+                    errorCount = 0;
+                    hideError();
+                    
+                    // 更新間隔を通常に戻す
+                    if (updateInterval) {
+                        clearInterval(updateInterval);
+                        updateInterval = setInterval(updatePlaybackState, 3000);
+                    }
+                } else if (data && data.device && !data.device.is_active) {
+                    // デバイスが非アクティブな場合
+                    deviceActive = false;
+                    
+                    // 最後に再生していた曲の情報を保持
+                    if (lastTrackInfo && lastTrackInfo.item) {
+                        document.getElementById('playbackStatus').textContent = '一時停止中';
+                        document.getElementById('playbackStatus').style.display = 'block';
+                    } else {
+                        document.getElementById('playbackStatus').textContent = 'デバイスが接続されていません';
+                        document.getElementById('playbackStatus').style.display = 'block';
+                    }
+                    
+                    updatePlayPauseButton(false);
+                    errorCount++;
                     
                     // エラーが続く場合は更新間隔を長くする
                     if (errorCount > 5 && updateInterval) {
@@ -782,10 +841,23 @@
                 clearTimeout(seekBackwardTimer);
             }
             
+            // UIを即時更新（ユーザーフィードバック）
+            const button = document.getElementById('seekBackward');
+            button.style.transform = 'scale(0.95)';
+            setTimeout(() => {
+                button.style.transform = 'scale(1)';
+            }, 100);
+            
+            // 現在の再生位置表示を即時更新（予測値）
+            if (lastTrackInfo && lastTrackInfo.progress_ms !== undefined) {
+                const seekAmount = seekBackwardCount * SEEK_STEP;
+                const predictedPosition = Math.max(0, lastTrackInfo.progress_ms - seekAmount);
+                updateProgressDisplay(predictedPosition, lastTrackInfo.item?.duration_ms || 0);
+            }
+            
             // 一定時間後に実行するタイマーを設定
             seekBackwardTimer = setTimeout(async () => {
                 // ボタンを一時的に無効化
-                const button = document.getElementById('seekBackward');
                 button.disabled = true;
                 button.style.opacity = '0.7';
                 
@@ -810,7 +882,7 @@
                     setTimeout(() => {
                         button.disabled = false;
                         button.style.opacity = '1';
-                    }, 300);
+                    }, 200); // 300msから200msに短縮
                 }
             }, SEEK_TIMEOUT);
         }
@@ -825,10 +897,23 @@
                 clearTimeout(seekForwardTimer);
             }
             
+            // UIを即時更新（ユーザーフィードバック）
+            const button = document.getElementById('seekForward');
+            button.style.transform = 'scale(0.95)';
+            setTimeout(() => {
+                button.style.transform = 'scale(1)';
+            }, 100);
+            
+            // 現在の再生位置表示を即時更新（予測値）
+            if (lastTrackInfo && lastTrackInfo.progress_ms !== undefined) {
+                const seekAmount = seekForwardCount * SEEK_STEP;
+                const predictedPosition = lastTrackInfo.progress_ms + seekAmount;
+                updateProgressDisplay(predictedPosition, lastTrackInfo.item?.duration_ms || 0);
+            }
+            
             // 一定時間後に実行するタイマーを設定
             seekForwardTimer = setTimeout(async () => {
                 // ボタンを一時的に無効化
-                const button = document.getElementById('seekForward');
                 button.disabled = true;
                 button.style.opacity = '0.7';
                 
@@ -853,9 +938,32 @@
                     setTimeout(() => {
                         button.disabled = false;
                         button.style.opacity = '1';
-                    }, 300);
+                    }, 200); // 300msから200msに短縮
                 }
             }, SEEK_TIMEOUT);
+        }
+
+        // 再生位置表示を更新する関数
+        function updateProgressDisplay(progressMs, durationMs) {
+            const progressElement = document.getElementById('progressDisplay');
+            if (!progressElement) return;
+            
+            if (progressMs !== undefined && durationMs) {
+                const progressSec = Math.floor(progressMs / 1000);
+                const durationSec = Math.floor(durationMs / 1000);
+                
+                const progressMin = Math.floor(progressSec / 60);
+                const progressRemainSec = progressSec % 60;
+                const durationMin = Math.floor(durationSec / 60);
+                const durationRemainSec = durationSec % 60;
+                
+                const progressFormatted = `${progressMin}:${progressRemainSec.toString().padStart(2, '0')}`;
+                const durationFormatted = `${durationMin}:${durationRemainSec.toString().padStart(2, '0')}`;
+                
+                progressElement.textContent = `${progressFormatted} / ${durationFormatted}`;
+            } else {
+                progressElement.textContent = '--:-- / --:--';
+            }
         }
 
         // 再生/一時停止を切り替える関数
@@ -876,13 +984,17 @@
             button.disabled = true;
             button.style.opacity = '0.7';
             
+            // UIを即時更新（ユーザーフィードバック）
+            const newIsPlaying = !isPlaying;
+            updatePlayPauseButton(newIsPlaying);
+            
             const endpoint = isPlaying ? '/pause' : '/play';
             try {
                 const response = await fetch(`${endpoint}?session_id=${sessionId}`);
                 const data = await response.json();
                 
                 if (data.success) {
-                    isPlaying = !isPlaying;
+                    isPlaying = newIsPlaying;
                     document.getElementById('playPauseButton').textContent = isPlaying ? '⏸' : '▶';
                     updateStatusDisplay(true, isPlaying);
                     hideError();
@@ -983,6 +1095,17 @@
                 clearTimeout(tokenRefreshTimeout);
             }
         });
+
+        // 再生/一時停止ボタンの状態を更新する関数
+        function updatePlayPauseButton(isPlaying) {
+            const button = document.getElementById('playPauseButton');
+            if (button) {
+                button.textContent = isPlaying ? '⏸' : '▶';
+            }
+        }
     </script>
+    <footer style="margin-top: 30px; text-align: center; font-size: 12px; color: #b3b3b3;">
+        <p>Spotify Controller v1.4.0 | <a href="#" id="logoutLink" style="color: #1DB954; text-decoration: none;">ログアウト</a></p>
+    </footer>
 </body>
 </html> 
