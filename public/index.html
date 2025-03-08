@@ -245,9 +245,11 @@
             <div id="errorMessage"></div>
             
             <div class="controls">
+                <button id="previousTrack" class="control-button">⏮</button>
                 <button id="seekBackward" class="control-button">-5秒</button>
                 <button id="playPauseButton" class="control-button">▶</button>
                 <button id="seekForward" class="control-button">+5秒</button>
+                <button id="nextTrack" class="control-button">⏭</button>
             </div>
             
             <div class="help-text">
@@ -1113,9 +1115,125 @@
                 button.textContent = isPlaying ? '⏸' : '▶';
             }
         }
+
+        // 前の曲に移動する関数
+        async function previousTrack() {
+            if (!sessionId) {
+                await handleAuthError();
+                return false;
+            }
+            
+            if (!deviceActive) {
+                showError('アクティブなデバイスがありません。Spotifyアプリで再生を開始してください。');
+                return false;
+            }
+            
+            // ボタンを一時的に無効化
+            const button = document.getElementById('previousTrack');
+            button.disabled = true;
+            button.style.opacity = '0.7';
+            
+            try {
+                const response = await fetch(`/previous?session_id=${sessionId}`);
+                const data = await response.json();
+                
+                if (data.success) {
+                    // 再生状態を更新
+                    updatePlaybackState();
+                    hideError();
+                    return true;
+                } else {
+                    console.error('Previous track failed:', data);
+                    if (data.error) {
+                        if (data.error.includes('token') || data.error.includes('unauthorized') || data.error.includes('Invalid or expired session')) {
+                            const refreshed = await handleAuthError();
+                            if (refreshed) {
+                                // トークンが更新されたら再試行
+                                return await previousTrack();
+                            }
+                        } else if (data.error.includes('NO_ACTIVE_DEVICE')) {
+                            showError('アクティブなデバイスがありません。Spotifyアプリで再生を開始してください。');
+                        } else {
+                            showError('前の曲への移動に失敗しました: ' + data.error);
+                        }
+                    }
+                    return false;
+                }
+            } catch (error) {
+                console.error('Error going to previous track:', error);
+                showError('前の曲への移動中にエラーが発生しました: ' + error.message);
+                return false;
+            } finally {
+                // 処理が完了したらボタンを再度有効化
+                setTimeout(() => {
+                    button.disabled = false;
+                    button.style.opacity = '1';
+                }, 200);
+            }
+        }
+
+        // 次の曲に移動する関数
+        async function nextTrack() {
+            if (!sessionId) {
+                await handleAuthError();
+                return false;
+            }
+            
+            if (!deviceActive) {
+                showError('アクティブなデバイスがありません。Spotifyアプリで再生を開始してください。');
+                return false;
+            }
+            
+            // ボタンを一時的に無効化
+            const button = document.getElementById('nextTrack');
+            button.disabled = true;
+            button.style.opacity = '0.7';
+            
+            try {
+                const response = await fetch(`/next?session_id=${sessionId}`);
+                const data = await response.json();
+                
+                if (data.success) {
+                    // 再生状態を更新
+                    updatePlaybackState();
+                    hideError();
+                    return true;
+                } else {
+                    console.error('Next track failed:', data);
+                    if (data.error) {
+                        if (data.error.includes('token') || data.error.includes('unauthorized') || data.error.includes('Invalid or expired session')) {
+                            const refreshed = await handleAuthError();
+                            if (refreshed) {
+                                // トークンが更新されたら再試行
+                                return await nextTrack();
+                            }
+                        } else if (data.error.includes('NO_ACTIVE_DEVICE')) {
+                            showError('アクティブなデバイスがありません。Spotifyアプリで再生を開始してください。');
+                        } else {
+                            showError('次の曲への移動に失敗しました: ' + data.error);
+                        }
+                    }
+                    return false;
+                }
+            } catch (error) {
+                console.error('Error going to next track:', error);
+                showError('次の曲への移動中にエラーが発生しました: ' + error.message);
+                return false;
+            } finally {
+                // 処理が完了したらボタンを再度有効化
+                setTimeout(() => {
+                    button.disabled = false;
+                    button.style.opacity = '1';
+                }, 200);
+            }
+        }
+
+        // 前の曲・次の曲ボタンのイベントリスナーを設定
+        document.getElementById('previousTrack').addEventListener('click', previousTrack);
+        document.getElementById('nextTrack').addEventListener('click', nextTrack);
     </script>
     <footer style="margin-top: 30px; text-align: center; font-size: 12px; color: #b3b3b3;">
-        <p>Spotify Controller v1.4.1 | <a href="#" id="logoutLink" style="color: #1DB954; text-decoration: none;">ログアウト</a></p>
+        <p>Spotify Controller v1.5.0 | <a href="#" id="logoutLink" style="color: #1DB954; text-decoration: none;">ログアウト</a></p>
     </footer>
 </body>
 </html> 

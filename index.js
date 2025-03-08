@@ -440,6 +440,108 @@ app.get('/pause', async function(req, res) {
   }
 });
 
+// 前の曲に移動するエンドポイント
+app.get('/previous', async function(req, res) {
+  const sessionId = req.query.session_id;
+  
+  const token = await ensureValidToken(sessionId);
+  if (!token) {
+    res.status(401).json({ error: 'No valid access token available' });
+    return;
+  }
+
+  try {
+    const response = await fetch('https://api.spotify.com/v1/me/player/previous', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`
+      }
+    });
+
+    if (response.status === 204) {
+      res.json({ success: true });
+    } else if (response.status === 401) {
+      // トークンが無効な場合は更新を試みる
+      const newToken = await refreshAccessToken(sessionId);
+      if (newToken) {
+        // 再試行
+        const retryResponse = await fetch('https://api.spotify.com/v1/me/player/previous', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${newToken}`
+          }
+        });
+        
+        if (retryResponse.status === 204) {
+          res.json({ success: true });
+        } else {
+          const errorData = await retryResponse.text();
+          res.json({ success: false, error: errorData });
+        }
+      } else {
+        res.status(401).json({ error: 'Failed to refresh token' });
+      }
+    } else {
+      const errorData = await response.text();
+      res.json({ success: false, error: errorData });
+    }
+  } catch (error) {
+    console.error('Error in previous track:', error);
+    res.status(500).json({ error: 'Failed to go to previous track: ' + error.message });
+  }
+});
+
+// 次の曲に移動するエンドポイント
+app.get('/next', async function(req, res) {
+  const sessionId = req.query.session_id;
+  
+  const token = await ensureValidToken(sessionId);
+  if (!token) {
+    res.status(401).json({ error: 'No valid access token available' });
+    return;
+  }
+
+  try {
+    const response = await fetch('https://api.spotify.com/v1/me/player/next', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`
+      }
+    });
+
+    if (response.status === 204) {
+      res.json({ success: true });
+    } else if (response.status === 401) {
+      // トークンが無効な場合は更新を試みる
+      const newToken = await refreshAccessToken(sessionId);
+      if (newToken) {
+        // 再試行
+        const retryResponse = await fetch('https://api.spotify.com/v1/me/player/next', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${newToken}`
+          }
+        });
+        
+        if (retryResponse.status === 204) {
+          res.json({ success: true });
+        } else {
+          const errorData = await retryResponse.text();
+          res.json({ success: false, error: errorData });
+        }
+      } else {
+        res.status(401).json({ error: 'Failed to refresh token' });
+      }
+    } else {
+      const errorData = await response.text();
+      res.json({ success: false, error: errorData });
+    }
+  } catch (error) {
+    console.error('Error in next track:', error);
+    res.status(500).json({ error: 'Failed to go to next track: ' + error.message });
+  }
+});
+
 app.get('/play', async function(req, res) {
   const sessionId = req.query.session_id;
   
